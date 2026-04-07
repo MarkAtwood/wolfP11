@@ -1,0 +1,43 @@
+[
+  {
+    "_comment": "SPEC REFERENCE ONLY — not a machine-driven test fixture. These vectors are human-readable representations of NIST SP 800-73-4 APDU sequences for review and documentation. The actual test oracle is the hardcoded hex in test/wp11_test_piv.c, which was derived from the same spec. A JSON parser was not added to the C test suite because: (1) no JSON library is available without adding a dependency, (2) writing a custom parser in C adds ~200 LOC of parser risk with no test coverage benefit, (3) both the JSON and C hex values are manually derived from the same spec sections, so drift between them would indicate a manual error in both places simultaneously. To add a new test vector: add the hex to wp11_test_piv.c AND update this file for human reference. wolfP11-7fr decision 2026-04-07."
+  },
+  {
+    "test": "SELECT_AID",
+    "description": "PIV SELECT AID per SP 800-73-4 Section 2.2",
+    "spec_ref": "NIST SP 800-73-4 Section 2.2",
+    "expected_apdu_hex": "00A404000BA000000308000010000100"
+  },
+  {
+    "test": "VERIFY_PIN",
+    "description": "PIV VERIFY PIN '123456' padded to 8 bytes per SP 800-73-4 Section 3.2.1",
+    "spec_ref": "NIST SP 800-73-4 Section 3.2.1",
+    "pin_hex": "313233343536",
+    "expected_apdu_hex": "0020008008313233343536FFFF"
+  },
+  {
+    "test": "GENERAL_AUTHENTICATE_P256",
+    "description": "GENERAL AUTHENTICATE with P-256 key in slot 9C",
+    "spec_ref": "NIST SP 800-73-4 Section 3.2.4",
+    "slot": "0x9C",
+    "alg": "0x11",
+    "challenge_hex": "DEADBEEFCAFE0123456789ABCDEF0102030405060708090A0B0C0D0E0F101112",
+    "expected_apdu_hex": "0087119C267C2482008120DEADBEEFCAFE0123456789ABCDEF0102030405060708090A0B0C0D0E0F10111200"
+  },
+  {
+    "test": "GENERAL_AUTHENTICATE_RSA2048",
+    "description": "GENERAL AUTHENTICATE with RSA-2048 key in slot 9A",
+    "spec_ref": "NIST SP 800-73-4 Section 3.2.4",
+    "slot": "0x9A",
+    "alg": "0x07",
+    "challenge_hex": "0102030405060708090A0B0C0D0E0F10",
+    "expected_apdu_hex": "0087079A167C14820081100102030405060708090A0B0C0D0E0F1000"
+  },
+  {
+    "test": "GET_DATA_SLOT_9C",
+    "description": "GET DATA for digital signature certificate in slot 9C",
+    "spec_ref": "NIST SP 800-73-4 Table 4b",
+    "slot": "0x9C",
+    "expected_apdu_hex": "00CB3FFF055C035FC10A00"
+  }
+]

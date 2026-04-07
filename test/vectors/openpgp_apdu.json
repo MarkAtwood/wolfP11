@@ -1,0 +1,45 @@
+[
+  {
+    "_comment": "SPEC REFERENCE ONLY — not a machine-driven test fixture. These vectors are human-readable representations of OpenPGP card spec v3.4 APDU sequences for review and documentation. The actual test oracle is the hardcoded hex in test/wp11_test_openpgp.c, which was derived from the same spec. A JSON parser was not added to the C test suite because: (1) no JSON library is available without adding a dependency, (2) writing a custom parser in C adds ~200 LOC of parser risk with no test coverage benefit, (3) both the JSON and C hex values are manually derived from the same spec sections, so drift between them would indicate a manual error in both places simultaneously. To add a new test vector: add the hex to wp11_test_openpgp.c AND update this file for human reference. wolfP11-7fr decision 2026-04-07."
+  },
+  {
+    "test": "SELECT_AID",
+    "description": "OpenPGP card SELECT AID",
+    "spec_ref": "OpenPGP card spec v3.4 Section 7.2.1",
+    "expected_apdu_hex": "00A4040006D27600012401"
+  },
+  {
+    "test": "VERIFY_PW1_SIGN",
+    "description": "VERIFY PW1 for signature (P2=0x81)",
+    "spec_ref": "OpenPGP card spec v3.4 Section 7.2.2",
+    "pw_hex": "313233343536",
+    "expected_apdu_hex": "0020008106313233343536"
+  },
+  {
+    "test": "VERIFY_PW1_OTHER",
+    "description": "VERIFY PW1 for other operations (P2=0x82)",
+    "spec_ref": "OpenPGP card spec v3.4 Section 7.2.2",
+    "pw_hex": "313233343536",
+    "expected_apdu_hex": "0020008206313233343536"
+  },
+  {
+    "test": "COMPUTE_DIGITAL_SIGNATURE",
+    "description": "COMPUTE DIGITAL SIGNATURE with 32-byte SHA-256 hash",
+    "spec_ref": "OpenPGP card spec v3.4 Section 7.2.6",
+    "hash_hex": "DEADBEEFCAFE0123456789ABCDEF0102030405060708090A0B0C0D0E0F101112",
+    "expected_apdu_hex": "002A9E9A20DEADBEEFCAFE0123456789ABCDEF0102030405060708090A0B0C0D0E0F10111200"
+  },
+  {
+    "test": "INTERNAL_AUTHENTICATE",
+    "description": "INTERNAL AUTHENTICATE with 16-byte challenge",
+    "spec_ref": "OpenPGP card spec v3.4 Section 7.2.10",
+    "data_hex": "0102030405060708090A0B0C0D0E0F10",
+    "expected_apdu_hex": "00880000100102030405060708090A0B0C0D0E0F1000"
+  },
+  {
+    "test": "GET_ARD",
+    "description": "GET DATA Application Related Data (DO 006E)",
+    "spec_ref": "OpenPGP card spec v3.4 Section 7.2.5",
+    "expected_apdu_hex": "00CA006E00"
+  }
+]

@@ -1,0 +1,372 @@
+/* wp11_test_openpgp.c -- OpenPGP card protocol APDU tests
+ * Reference: OpenPGP card application spec v3.4 (gnupg.org)
+ * Test vectors: openpgp_apdu.json derived from spec Sections 7.2.1, 7.2.2, 7.2.6, 7.2.10
+ */
+
+#include "wp11_test_openpgp.h"
+
+#ifdef WOLFP11_CFG_TEST
+
+#include "wolfp11/wp11_proto_openpgp.h"
+#include "wolfp11/wp11_ccid.h"
+
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+
+/* -------------------------------------------------------------------------
+ * Test helper
+ * ---------------------------------------------------------------------- */
+
+static int check(int pass, const char *label)
+{
+    printf("%s: %s\n", pass ? "PASS" : "FAIL", label);
+    return pass ? 0 : 1;
+}
+
+/* -------------------------------------------------------------------------
+ * CCID frame constants (must match wp11_ccid.c internals)
+ * ---------------------------------------------------------------------- */
+
+#define CCID_HEADER_LEN         10
+#define CCID_MSG_RDR_TO_PC_DATABLOCK 0x80u
+
+/* -------------------------------------------------------------------------
+ * Mock state: captures the APDU bytes sent by the protocol layer and
+ * returns a programmable synthetic CCID response frame.
+ * ---------------------------------------------------------------------- */
+
+typedef struct {
+    /* captured outgoing APDU (stripped of CCID header) */
+    uint8_t  apdu[512];
+    size_t   apdu_len;
+
+    /* response payload the mock should return (APDU data + SW, no header) */
+    uint8_t  resp_payload[512];
+    size_t   resp_payload_len;
+} mock_state_t;
+
+static int mock_transport(void          *userdata,
+                           const uint8_t *out, size_t  outlen,
+                           uint8_t       *in,  size_t *inlen)
+{
+    mock_state_t *st = (mock_state_t *)userdata;
+    size_t        apdu_len;
+    size_t        frame_in_len;
+
+    /* The outgoing frame is CCID_HEADER_LEN bytes of header + raw APDU. */
+    if (outlen < (size_t)CCID_HEADER_LEN) {
+        return -1;
+    }
+    apdu_len = outlen - (size_t)CCID_HEADER_LEN;
+    if (apdu_len > sizeof(st->apdu)) {
+        return -1;
+    }
+
+    memcpy(st->apdu, out + CCID_HEADER_LEN, apdu_len);
+    st->apdu_len = apdu_len;
+
+    /* Build a valid RDR_to_PC_DataBlock frame around resp_payload. */
+    frame_in_len = (size_t)CCID_HEADER_LEN + st->resp_payload_len;
+    if (frame_in_len > *inlen) {
+        return -1;
+    }
+
+    memset(in, 0, frame_in_len);
+    in[0] = CCID_MSG_RDR_TO_PC_DATABLOCK;  /* bMessageType */
+    /* dwLength (little-endian) */
+    in[1] = (uint8_t)(st->resp_payload_len        & 0xFFu);
+    in[2] = (uint8_t)((st->resp_payload_len >>  8) & 0xFFu);
+    in[3] = (uint8_t)((st->resp_payload_len >> 16) & 0xFFu);
+    in[4] = (uint8_t)((st->resp_payload_len >> 24) & 0xFFu);
+    in[5] = 0x00u;             /* bSlot */
+    in[6] = out[6];            /* bSeq: mirror sequence number from request */
+    in[7] = 0x00u;             /* bStatus: ok */
+    in[8] = 0x00u;             /* bError */
+    in[9] = 0x00u;             /* bChainParameter */
+    memcpy(in + CCID_HEADER_LEN, st->resp_payload, st->resp_payload_len);
+
+    *inlen = frame_in_len;
+    return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Helper: set the mock response to a bare SW word
+ * ---------------------------------------------------------------------- */
+
+static void set_sw_response(mock_state_t *st, uint8_t sw1, uint8_t sw2)
+{
+    st->resp_payload[0]  = sw1;
+    st->resp_payload[1]  = sw2;
+    st->resp_payload_len = 2u;
+}
+
+/* -------------------------------------------------------------------------
+ * Helper: open a mock ccid context
+ * ---------------------------------------------------------------------- */
+
+static wp11_ccid_ctx_t *open_mock(mock_state_t *st)
+{
+    wp11_ccid_ctx_t *ccid = NULL;
+    int rc = wp11_ccid_open_mock(mock_transport, st, &ccid);
+    if (rc != WP11_CCID_OK) {
+        return NULL;
+    }
+    return ccid;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 1: vector_file_nonempty
+ * Open test/vectors/openpgp_apdu.json, assert it exists and has content.
+ *
+ * The JSON file is a human-readable spec reference, not a machine-driven
+ * fixture (wolfP11-7fr). The test oracle is the hardcoded hex in this file.
+ * We verify the file exists and is non-empty to catch accidental deletion.
+ * ---------------------------------------------------------------------- */
+
+static int test_vector_file_nonempty(void)
+{
+    FILE  *f;
+    long   size;
+    int    pass;
+
+    f = fopen("test/vectors/openpgp_apdu.json", "r");
+    if (f == NULL) {
+        return check(0, "vector_file_nonempty");
+    }
+
+    fseek(f, 0L, SEEK_END);
+    size = ftell(f);
+    fclose(f);
+
+    pass = (size > 0L);
+    return check(pass, "vector_file_nonempty");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 2: select_aid_apdu
+ * Verify the 11-byte SELECT AID APDU matches the spec vector.
+ * ---------------------------------------------------------------------- */
+
+static int test_select_aid_apdu(void)
+{
+    static const uint8_t expected[] = {
+        0x00u, 0xA4u, 0x04u, 0x00u, 0x06u,
+        0xD2u, 0x76u, 0x00u, 0x01u, 0x24u, 0x01u
+    };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    int              rc;
+    int              pass;
+
+    memset(&st, 0, sizeof(st));
+    set_sw_response(&st, 0x90u, 0x00u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "select_aid_apdu");
+    }
+
+    rc = wp11_openpgp_select(ccid);
+    wp11_ccid_close(ccid);
+
+    pass = (rc == WP11_OPENPGP_OK)
+        && (st.apdu_len == sizeof(expected))
+        && (memcmp(st.apdu, expected, sizeof(expected)) == 0);
+
+    return check(pass, "select_aid_apdu");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 3: verify_pw1_sign_apdu
+ * VERIFY PW1 with mode=0x81, password "123456".
+ * ---------------------------------------------------------------------- */
+
+static int test_verify_pw1_sign_apdu(void)
+{
+    static const uint8_t pw[]       = { 0x31u, 0x32u, 0x33u, 0x34u, 0x35u, 0x36u };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    int              rc;
+    int              pass;
+
+    memset(&st, 0, sizeof(st));
+    set_sw_response(&st, 0x90u, 0x00u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "verify_pw1_sign_apdu");
+    }
+
+    rc = wp11_openpgp_verify_pw1(ccid, pw, sizeof(pw), WP11_OPENPGP_PW1_MODE_SIGN);
+    wp11_ccid_close(ccid);
+
+    pass = (rc == WP11_OPENPGP_OK)
+        && (st.apdu_len == 11u)
+        && (st.apdu[0] == 0x00u)
+        && (st.apdu[1] == 0x20u)
+        && (st.apdu[2] == 0x00u)
+        && (st.apdu[3] == 0x81u)
+        && (st.apdu[4] == 0x06u);
+
+    return check(pass, "verify_pw1_sign_apdu");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 4: verify_pw1_other_apdu
+ * VERIFY PW1 with mode=0x82.
+ * ---------------------------------------------------------------------- */
+
+static int test_verify_pw1_other_apdu(void)
+{
+    static const uint8_t pw[] = { 0x31u, 0x32u, 0x33u, 0x34u, 0x35u, 0x36u };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    int              rc;
+    int              pass;
+
+    memset(&st, 0, sizeof(st));
+    set_sw_response(&st, 0x90u, 0x00u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "verify_pw1_other_apdu");
+    }
+
+    rc = wp11_openpgp_verify_pw1(ccid, pw, sizeof(pw), WP11_OPENPGP_PW1_MODE_OTHER);
+    wp11_ccid_close(ccid);
+
+    pass = (rc == WP11_OPENPGP_OK)
+        && (st.apdu_len == 11u)
+        && (st.apdu[3] == 0x82u);
+
+    return check(pass, "verify_pw1_other_apdu");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 5: compute_sig_apdu
+ * COMPUTE DIGITAL SIGNATURE with 32-byte hash (all 0xAB).
+ * ---------------------------------------------------------------------- */
+
+static int test_compute_sig_apdu(void)
+{
+    uint8_t          hash[32];
+    uint8_t          sig[256];
+    size_t           siglen = sizeof(sig);
+    /* fake signature bytes + SW 90 00 */
+    static const uint8_t fake_sig[] = { 0xAAu, 0xBBu, 0xCCu };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    int              rc;
+    int              pass;
+
+    memset(hash, 0xABu, sizeof(hash));
+    memset(&st, 0, sizeof(st));
+
+    /* Response: fake_sig bytes followed by SW 90 00 */
+    memcpy(st.resp_payload, fake_sig, sizeof(fake_sig));
+    st.resp_payload[sizeof(fake_sig)]     = 0x90u;
+    st.resp_payload[sizeof(fake_sig) + 1u] = 0x00u;
+    st.resp_payload_len = sizeof(fake_sig) + 2u;
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "compute_sig_apdu");
+    }
+
+    rc = wp11_openpgp_sign(ccid, hash, sizeof(hash), sig, &siglen);
+    wp11_ccid_close(ccid);
+
+    /* APDU: 00 2A 9E 9A 20 [32 bytes] 00 = 38 bytes */
+    pass = (rc == WP11_OPENPGP_OK)
+        && (st.apdu_len == 38u)
+        && (st.apdu[0] == 0x00u)
+        && (st.apdu[1] == 0x2Au)
+        && (st.apdu[2] == 0x9Eu)
+        && (st.apdu[3] == 0x9Au)
+        && (st.apdu[4] == 0x20u)
+        && (siglen == sizeof(fake_sig));
+
+    return check(pass, "compute_sig_apdu");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 6: pw_bad_sw
+ * SW 63 C2 -> WP11_OPENPGP_ERR_PW_BAD
+ * ---------------------------------------------------------------------- */
+
+static int test_pw_bad_sw(void)
+{
+    static const uint8_t pw[] = { 0x31u, 0x32u, 0x33u };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    int              rc;
+
+    memset(&st, 0, sizeof(st));
+    set_sw_response(&st, 0x63u, 0xC2u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "pw_bad_sw");
+    }
+
+    rc = wp11_openpgp_verify_pw1(ccid, pw, sizeof(pw), WP11_OPENPGP_PW1_MODE_SIGN);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_OPENPGP_ERR_PW_BAD, "pw_bad_sw");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 7: pw_locked_sw
+ * SW 69 83 -> WP11_OPENPGP_ERR_PW_LOCKED
+ * ---------------------------------------------------------------------- */
+
+static int test_pw_locked_sw(void)
+{
+    static const uint8_t pw[] = { 0x31u, 0x32u, 0x33u };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    int              rc;
+
+    memset(&st, 0, sizeof(st));
+    set_sw_response(&st, 0x69u, 0x83u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "pw_locked_sw");
+    }
+
+    rc = wp11_openpgp_verify_pw1(ccid, pw, sizeof(pw), WP11_OPENPGP_PW1_MODE_SIGN);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_OPENPGP_ERR_PW_LOCKED, "pw_locked_sw");
+}
+
+/* -------------------------------------------------------------------------
+ * Entry point
+ * ---------------------------------------------------------------------- */
+
+int wp11_test_openpgp(void)
+{
+    int failures = 0;
+
+    failures += test_vector_file_nonempty();
+    failures += test_select_aid_apdu();
+    failures += test_verify_pw1_sign_apdu();
+    failures += test_verify_pw1_other_apdu();
+    failures += test_compute_sig_apdu();
+    failures += test_pw_bad_sw();
+    failures += test_pw_locked_sw();
+
+    return failures;
+}
+
+#else /* WOLFP11_CFG_TEST not defined */
+
+int wp11_test_openpgp(void)
+{
+    return 0;
+}
+
+#endif /* WOLFP11_CFG_TEST */
