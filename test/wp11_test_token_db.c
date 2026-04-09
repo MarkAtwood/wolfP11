@@ -140,6 +140,58 @@ static int test_nitrokey_pro2_no_rsa4096(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Tests for wp11_token_db_lookup_unknown()
+ *
+ * Oracle: the fallback descriptor fields are hardcoded in wp11_token_db.c
+ * and documented in wolfp11/wp11_token_db.h.  Each assertion checks one
+ * field against the spec-mandated value.
+ * ---------------------------------------------------------------------- */
+
+static int test_lookup_unknown_non_null(void)
+{
+    const wp11_token_desc_t *t = wp11_token_db_lookup_unknown();
+    return check(t != NULL,
+                 "token_db lookup_unknown returns non-NULL");
+}
+
+static int test_lookup_unknown_stable(void)
+{
+    const wp11_token_desc_t *a = wp11_token_db_lookup_unknown();
+    const wp11_token_desc_t *b = wp11_token_db_lookup_unknown();
+    return check(a != NULL && a == b,
+                 "token_db lookup_unknown returns same address on repeated calls");
+}
+
+static int test_lookup_unknown_proto_piv(void)
+{
+    const wp11_token_desc_t *t = wp11_token_db_lookup_unknown();
+    return check(t != NULL && t->proto == WP11_PROTO_PIV,
+                 "token_db lookup_unknown proto is WP11_PROTO_PIV");
+}
+
+static int test_lookup_unknown_quirks_short_apdu(void)
+{
+    const wp11_token_desc_t *t = wp11_token_db_lookup_unknown();
+    return check(t != NULL && t->quirks == WP11_QUIRK_SHORT_APDU,
+                 "token_db lookup_unknown quirks is WP11_QUIRK_SHORT_APDU");
+}
+
+static int test_lookup_unknown_name(void)
+{
+    const wp11_token_desc_t *t = wp11_token_db_lookup_unknown();
+    return check(t != NULL && strcmp(t->name, "Generic PIV Token") == 0,
+                 "token_db lookup_unknown name is \"Generic PIV Token\"");
+}
+
+static int test_lookup_unknown_algos(void)
+{
+    const wp11_token_desc_t *t = wp11_token_db_lookup_unknown();
+    return check(t != NULL &&
+                 t->algos == (WP11_ALGO_RSA2048 | WP11_ALGO_EC_P256),
+                 "token_db lookup_unknown algos is RSA2048|EC_P256");
+}
+
+/* -------------------------------------------------------------------------
  * Entry point
  * ---------------------------------------------------------------------- */
 
@@ -154,6 +206,12 @@ int wp11_test_token_db(void)
     failures += test_nitrokey_pro2_proto_openpgp();
     failures += test_yubikey_nfc_has_ec_p256();
     failures += test_nitrokey_pro2_no_rsa4096();
+    failures += test_lookup_unknown_non_null();
+    failures += test_lookup_unknown_stable();
+    failures += test_lookup_unknown_proto_piv();
+    failures += test_lookup_unknown_quirks_short_apdu();
+    failures += test_lookup_unknown_name();
+    failures += test_lookup_unknown_algos();
 
     return failures;
 }

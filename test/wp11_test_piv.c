@@ -1024,6 +1024,312 @@ static int test_piv_ecdh_apdu(void)
 }
 
 /* -------------------------------------------------------------------------
+ * tlv_expect error paths
+ *
+ * The following eight tests exercise the three tlv_expect()-refactored sites
+ * (wp11_piv_sign, wp11_piv_ecdh, wp11_piv_get_cert) with malformed response
+ * bodies constructed from first principles.  They act as independent oracles
+ * for tlv_expect() since the helper is static and not directly callable.
+ *
+ * SP 800-73-4 Section 3.2.4, Table 13 (sign/ecdh); Section 3.1.2 (cert).
+ * ---------------------------------------------------------------------- */
+
+/* sign: wrong outer tag (0xFF instead of 0x7C) -> ERR_ENCODING */
+static int test_tlv_sign_wrong_outer_tag(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          challenge[16];
+    uint8_t          sig[64];
+    size_t           siglen = sizeof(sig);
+    int              rc;
+
+    (void)memset(challenge, 0x01u, sizeof(challenge));
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* Wrong outer tag: 0xFF instead of TAG_DAT (0x7C) */
+    state.extra[0] = 0xFFu;
+    state.extra[1] = 0x06u;
+    state.extra[2] = 0x82u;
+    state.extra[3] = 0x04u;
+    state.extra[4] = 0xAAu;
+    state.extra[5] = 0xBBu;
+    state.extra[6] = 0xCCu;
+    state.extra[7] = 0xDDu;
+    state.extra_len = 8u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_sign_wrong_outer_tag (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_sign(ccid, WP11_PIV_SLOT_SIGN, WP11_PIV_ALG_EC_P256,
+                       challenge, sizeof(challenge), sig, &siglen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_ENCODING,
+                 "tlv_sign_wrong_outer_tag: 0xFF outer -> WP11_PIV_ERR_ENCODING");
+}
+
+/* sign: wrong inner tag (0xFF instead of 0x82) -> ERR_SW */
+static int test_tlv_sign_wrong_inner_tag(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          challenge[16];
+    uint8_t          sig[64];
+    size_t           siglen = sizeof(sig);
+    int              rc;
+
+    (void)memset(challenge, 0x02u, sizeof(challenge));
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* Outer 7C is correct; inner tag 0xFF instead of TAG_RESPONSE (0x82) */
+    state.extra[0] = 0x7Cu;
+    state.extra[1] = 0x06u;
+    state.extra[2] = 0xFFu;  /* wrong inner tag */
+    state.extra[3] = 0x04u;
+    state.extra[4] = 0xAAu;
+    state.extra[5] = 0xBBu;
+    state.extra[6] = 0xCCu;
+    state.extra[7] = 0xDDu;
+    state.extra_len = 8u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_sign_wrong_inner_tag (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_sign(ccid, WP11_PIV_SLOT_SIGN, WP11_PIV_ALG_EC_P256,
+                       challenge, sizeof(challenge), sig, &siglen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_SW,
+                 "tlv_sign_wrong_inner_tag: 0xFF inner -> WP11_PIV_ERR_SW");
+}
+
+/* sign: outer container length overruns response -> ERR_ENCODING */
+static int test_tlv_sign_outer_overrun(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          challenge[16];
+    uint8_t          sig[64];
+    size_t           siglen = sizeof(sig);
+    int              rc;
+
+    (void)memset(challenge, 0x03u, sizeof(challenge));
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* 7C claims len=16 but only 2 bytes follow */
+    state.extra[0] = 0x7Cu;
+    state.extra[1] = 0x10u;  /* claims 16 bytes of container content */
+    state.extra[2] = 0x82u;
+    state.extra[3] = 0x04u;
+    state.extra_len = 4u;    /* only 2 bytes actually present */
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_sign_outer_overrun (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_sign(ccid, WP11_PIV_SLOT_SIGN, WP11_PIV_ALG_EC_P256,
+                       challenge, sizeof(challenge), sig, &siglen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_ENCODING,
+                 "tlv_sign_outer_overrun: outer len > available -> WP11_PIV_ERR_ENCODING");
+}
+
+/* sign: inner value length overruns outer container -> ERR_ENCODING */
+static int test_tlv_sign_inner_overrun(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          challenge[16];
+    uint8_t          sig[64];
+    size_t           siglen = sizeof(sig);
+    int              rc;
+
+    (void)memset(challenge, 0x04u, sizeof(challenge));
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* 7C len=6, 82 claims len=15 but outer container ends at 6 bytes */
+    state.extra[0] = 0x7Cu;
+    state.extra[1] = 0x06u;  /* outer container: 6 bytes */
+    state.extra[2] = 0x82u;
+    state.extra[3] = 0x0Fu;  /* inner claims 15 bytes, but only 4 bytes left */
+    state.extra[4] = 0xAAu;
+    state.extra[5] = 0xBBu;
+    state.extra[6] = 0xCCu;
+    state.extra[7] = 0xDDu;
+    state.extra_len = 8u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_sign_inner_overrun (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_sign(ccid, WP11_PIV_SLOT_SIGN, WP11_PIV_ALG_EC_P256,
+                       challenge, sizeof(challenge), sig, &siglen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_ENCODING,
+                 "tlv_sign_inner_overrun: inner len > container -> WP11_PIV_ERR_ENCODING");
+}
+
+/* ecdh: wrong outer tag -> ERR_SW */
+static int test_tlv_ecdh_wrong_outer_tag(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          peer_pub[65];
+    uint8_t          shared[32];
+    size_t           sharedlen = sizeof(shared);
+    int              rc;
+
+    (void)memset(peer_pub, 0x00u, sizeof(peer_pub));
+    peer_pub[0] = 0x04u;
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* Wrong outer tag: 0xFF instead of TAG_DAT (0x7C) */
+    state.extra[0] = 0xFFu;
+    state.extra[1] = 0x06u;
+    state.extra[2] = 0x82u;
+    state.extra[3] = 0x04u;
+    state.extra[4] = 0xAAu;
+    state.extra[5] = 0xBBu;
+    state.extra[6] = 0xCCu;
+    state.extra[7] = 0xDDu;
+    state.extra_len = 8u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_ecdh_wrong_outer_tag (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_ecdh(ccid, WP11_PIV_SLOT_KEYMGMT, WP11_PIV_ALG_EC_P256,
+                       peer_pub, sizeof(peer_pub), shared, &sharedlen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_SW,
+                 "tlv_ecdh_wrong_outer_tag: 0xFF outer -> WP11_PIV_ERR_SW");
+}
+
+/* ecdh: wrong inner tag -> ERR_SW */
+static int test_tlv_ecdh_wrong_inner_tag(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          peer_pub[65];
+    uint8_t          shared[32];
+    size_t           sharedlen = sizeof(shared);
+    int              rc;
+
+    (void)memset(peer_pub, 0x00u, sizeof(peer_pub));
+    peer_pub[0] = 0x04u;
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* Correct outer 7C; inner tag 0xFF instead of TAG_RESPONSE (0x82) */
+    state.extra[0] = 0x7Cu;
+    state.extra[1] = 0x06u;
+    state.extra[2] = 0xFFu;  /* wrong inner tag */
+    state.extra[3] = 0x04u;
+    state.extra[4] = 0xAAu;
+    state.extra[5] = 0xBBu;
+    state.extra[6] = 0xCCu;
+    state.extra[7] = 0xDDu;
+    state.extra_len = 8u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_ecdh_wrong_inner_tag (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_ecdh(ccid, WP11_PIV_SLOT_KEYMGMT, WP11_PIV_ALG_EC_P256,
+                       peer_pub, sizeof(peer_pub), shared, &sharedlen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_SW,
+                 "tlv_ecdh_wrong_inner_tag: 0xFF inner -> WP11_PIV_ERR_SW");
+}
+
+/* get_cert: wrong outer tag -> ERR_ENCODING */
+static int test_tlv_get_cert_wrong_outer_tag(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          cert[256];
+    size_t           certlen = sizeof(cert);
+    int              rc;
+
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* Wrong outer tag: 0xFF instead of 0x53 */
+    state.extra[0] = 0xFFu;  /* wrong outer tag */
+    state.extra[1] = 0x06u;
+    state.extra[2] = 0x70u;
+    state.extra[3] = 0x04u;
+    state.extra[4] = 0xAAu;
+    state.extra[5] = 0xBBu;
+    state.extra[6] = 0xCCu;
+    state.extra[7] = 0xDDu;
+    state.extra_len = 8u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_get_cert_wrong_outer_tag (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_get_cert(ccid, WP11_PIV_SLOT_AUTH, cert, &certlen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_ENCODING,
+                 "tlv_get_cert_wrong_outer_tag: 0xFF outer -> WP11_PIV_ERR_ENCODING");
+}
+
+/* get_cert: wrong inner tag -> ERR_ENCODING
+ * SP 800-73-4 Section 3.1.2: inner tag must be 0x70 (Certificate). */
+static int test_tlv_get_cert_wrong_inner_tag(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          cert[256];
+    size_t           certlen = sizeof(cert);
+    int              rc;
+    size_t           k;
+
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* Outer 0x53, len=10; inner tag 0xFF (wrong) instead of 0x70, len=8 */
+    state.extra[0] = 0x53u;  /* correct outer tag */
+    state.extra[1] = 0x0Au;  /* outer len = 10 */
+    state.extra[2] = 0xFFu;  /* wrong inner tag */
+    state.extra[3] = 0x08u;  /* inner len = 8 */
+    for (k = 4u; k < 12u; k++) { state.extra[k] = 0xABu; }
+    state.extra_len = 12u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_get_cert_wrong_inner_tag (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_get_cert(ccid, WP11_PIV_SLOT_AUTH, cert, &certlen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_ENCODING,
+                 "tlv_get_cert_wrong_inner_tag: 0xFF inner -> WP11_PIV_ERR_ENCODING");
+}
+
+/* -------------------------------------------------------------------------
  * Entry point
  * ---------------------------------------------------------------------- */
 
@@ -1047,6 +1353,14 @@ int wp11_test_piv(void)
     failures += test_generate_keypair_bad_sw();
     failures += test_piv_attest_apdu();
     failures += test_piv_ecdh_apdu();
+    failures += test_tlv_sign_wrong_outer_tag();
+    failures += test_tlv_sign_wrong_inner_tag();
+    failures += test_tlv_sign_outer_overrun();
+    failures += test_tlv_sign_inner_overrun();
+    failures += test_tlv_ecdh_wrong_outer_tag();
+    failures += test_tlv_ecdh_wrong_inner_tag();
+    failures += test_tlv_get_cert_wrong_outer_tag();
+    failures += test_tlv_get_cert_wrong_inner_tag();
 
     return failures;
 }

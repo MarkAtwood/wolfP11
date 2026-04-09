@@ -39,6 +39,7 @@ typedef enum {
     WP11_BACKEND_USB       = 1,  /* USB token via CCID                          */
     WP11_BACKEND_WOLFHSM   = 2,  /* wolfHSM server via WH_DEV_ID callback       */
     WP11_BACKEND_USB_FLASH = 3,  /* Encrypted .p11k keystore on USB flash drive */
+    WP11_BACKEND_FSDIR     = 4,  /* Encrypted .p11k keystore in watched directory */
 } wp11_backend_type_t;
 
 /* -------------------------------------------------------------------------
@@ -131,11 +132,47 @@ extern const wp11_backend_ops_t wp11_backend_usb_ops;
 #endif /* WOLFP11_CFG_USB_BACKEND */
 
 /* -------------------------------------------------------------------------
+ * Shared keystore crypto ops (USB flash + FSDIR backends)
+ *
+ * wp11_backend_keystore.c provides one implementation used by both backends.
+ * ---------------------------------------------------------------------- */
+
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+/* Forward declaration for wp11_key_entry_t (defined in wp11_keystore.h).
+ * Backends include wp11_keystore.h directly; this forward decl keeps
+ * wp11_backend.h self-contained for callers that don't need the full type. */
+struct wp11_key_entry;
+
+int wp11_ks_sign(const wp11_key_handle_t *handle,
+                 uint32_t                 mechanism,
+                 const uint8_t           *in,    size_t  inlen,
+                 uint8_t                 *sig,   size_t *siglen);
+
+int wp11_ks_verify(const wp11_key_handle_t *handle,
+                   uint32_t                 mechanism,
+                   const uint8_t           *in,    size_t inlen,
+                   const uint8_t           *sig,   size_t siglen);
+
+int wp11_ks_decrypt(const wp11_key_handle_t *handle,
+                    uint32_t                 mechanism,
+                    const uint8_t           *ct,    size_t  ctlen,
+                    uint8_t                 *pt,    size_t *ptlen);
+#endif
+
+/* -------------------------------------------------------------------------
  * USB flash drive keystore backend (requires WOLFP11_CFG_USB_FLASH_BACKEND)
  * ---------------------------------------------------------------------- */
 
 #ifdef WOLFP11_CFG_USB_FLASH_BACKEND
 extern const wp11_backend_ops_t wp11_backend_flash_ops;
+#endif
+
+/* -------------------------------------------------------------------------
+ * Filesystem directory keystore backend (requires WOLFP11_CFG_FSDIR_BACKEND)
+ * ---------------------------------------------------------------------- */
+
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+extern const wp11_backend_ops_t wp11_backend_fsdir_ops;
 #endif
 
 /* -------------------------------------------------------------------------

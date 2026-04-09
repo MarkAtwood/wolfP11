@@ -91,6 +91,22 @@ ifdef USBFLASH
 SRCS    += src/wp11_keystore.c \
            src/wp11_backend_usb_flash.c
 CFLAGS  += -DWOLFP11_CFG_USB_FLASH_BACKEND
+KS_OPS_SRC = src/wp11_backend_keystore.c
+endif
+
+# Filesystem directory keystore backend is opt-in (FSDIR=1)
+# Watches a flat directory for .p11k files; uses the same AES-GCM keystore
+# format as the USB flash backend.  Requires inotify (Linux only).
+ifdef FSDIR
+SRCS    += src/wp11_keystore.c \
+           src/wp11_backend_fsdir.c
+CFLAGS  += -DWOLFP11_CFG_FSDIR_BACKEND
+KS_OPS_SRC = src/wp11_backend_keystore.c
+endif
+
+# Add shared keystore ops exactly once (both backends set KS_OPS_SRC).
+ifdef KS_OPS_SRC
+SRCS += $(KS_OPS_SRC)
 endif
 
 BUILD        = build
@@ -121,7 +137,8 @@ TEST_SRCS = test/wp11_test.c \
             test/wp11_test_openpgp.c \
             test/wp11_test_pkcs11.c \
             test/wp11_test_keystore.c \
-            test/wp11_test_backend_soft.c
+            test/wp11_test_backend_soft.c \
+            test/wp11_test_fsdir.c
 
 # wolfHSM backend test sources (opt-in with WOLFHSM=1).
 # The server sources are compiled separately with WOLFHSM_CFG_ENABLE_SERVER so
@@ -141,6 +158,14 @@ TEST_SRCS         += test/wp11_test_backend_wolfhsm.c \
 # AES_BLOCK_SIZE is suppressed by OPENSSL_COEXIST in this wolfSSL build;
 # restore it for wolfHSM server sources that rely on the alias.
 TEST_CFLAGS_EXTRA  = -DWOLFHSM_CFG_ENABLE_SERVER -DAES_BLOCK_SIZE=16
+endif
+
+ifdef FSDIR
+TEST_SRCS += test/wp11_test_backend_fsdir.c
+endif
+
+ifdef USBFLASH
+TEST_SRCS += test/wp11_test_backend_usb_flash.c
 endif
 
 $(TEST): $(TEST_SRCS) $(SRCS)

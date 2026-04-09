@@ -95,8 +95,11 @@ compiled in. The USB flash drive keystore backend is opt-in:
 # Soft token + USB hardware token support (YubiKey, NitroKey via CCID)
 make
 
-# Also include USB flash drive keystore (.p11k files)
+# Also include USB flash drive keystore (.p11k files on removable USB drives)
 make USBFLASH=1
+
+# Also include filesystem directory keystore (any mounted volume)
+make FSDIR=1
 
 # With wolfHSM backend (opt-in)
 make WOLFHSM=1 WOLFHSM_DIR=~/wolfHSM
@@ -559,7 +562,116 @@ Do not rely on `shred` alone for high-assurance destruction on USB flash drives.
 
 ---
 
-## 5. Soft Token
+## 5. Filesystem Directory Keystore (FSDIR)
+
+The FSDIR backend watches a single flat directory for `.p11k` keystore files
+and creates a PKCS#11 slot for each one it finds. It is the software-only
+counterpart to the USB flash backend: no USB drive or dedicated hardware is
+required. Physical-presence protection is replaced by filesystem-level access
+control.
+
+**Enable at build time:**
+
+```sh
+make FSDIR=1
+```
+
+**Key differences from the USB flash backend:**
+
+| Property | USB flash | FSDIR |
+|----------|-----------|-------|
+| Physical presence | Yes -- key on removable drive | No -- key on local filesystem |
+| Auto-detection | inotify watch on `/run/media` subdirs | inotify watch on one flat directory |
+| Subdirectory scan | Yes (mount-point tree) | No (flat directory only) |
+| Key generation | Read-only (import via CLI) | Read-only (import via CLI) |
+| Use cases | Removable hardware token alternative | tmpfs, LUKS volume, bind-mount, CI |
+
+### 5.1 Configure the watched directory
+
+The watched directory defaults to `/var/lib/wolfp11`. Override at build time:
+
+```sh
+make FSDIR=1 CFLAGS='-DWOLFP11_CFG_FSDIR_PATH=\"/etc/wolfp11/keys\"'
+```
+
+Or at runtime (takes precedence over the compile-time default):
+
+```sh
+export WOLFP11_FSDIR_PATH=/run/wolfp11/keys
+```
+
+### 5.2 Provisioning a FSDIR keystore
+
+`.p11k` files for the FSDIR backend are created with the same `wp11 keystore`
+CLI as the USB flash backend. Place the resulting file in the watched directory:
+
+```sh
+# Create an empty keystore with a PIN
+wp11 keystore create --out /var/lib/wolfp11/my-keys.p11k --pin 'mypin'
+
+# Import an existing EC or RSA private key
+wp11 keystore import-key --keystore /var/lib/wolfp11/my-keys.p11k \
+    --pin 'mypin' --key ec256.pem --label 'signing-key'
+```
+
+wolfP11 picks up the file automatically if it is placed (or moved) into the
+watched directory while the library is initialized.
+
+### 5.3 Use cases
+
+**tmpfs (in-memory, survives process restart within the session):**
+
+```sh
+mkdir -p /run/wolfp11
+mount -t tmpfs tmpfs /run/wolfp11
+export WOLFP11_FSDIR_PATH=/run/wolfp11
+```
+
+Keys loaded into tmpfs are lost on reboot or unmount. This is useful for
+ephemeral signing tasks in containers or CI where keys should not persist.
+
+**LUKS encrypted volume:**
+
+```sh
+cryptsetup open /dev/sdb1 wolfp11-keys
+mkdir -p /mnt/wolfp11
+mount /dev/mapper/wolfp11-keys /mnt/wolfp11
+export WOLFP11_FSDIR_PATH=/mnt/wolfp11
+```
+
+Closing the LUKS volume makes the keystore files inaccessible, providing
+protection analogous to removing a USB drive.
+
+**Bind-mount from a secrets manager:**
+
+```sh
+mkdir -p /run/wolfp11
+mount --bind /secure/secrets/wolfp11 /run/wolfp11
+export WOLFP11_FSDIR_PATH=/run/wolfp11
+```
+
+### 5.4 Hot-plug detection
+
+The FSDIR backend uses inotify to watch the directory. When a `.p11k` file
+appears (copy, move, or write), a new slot is created automatically and
+`C_WaitForSlotEvent` fires. When the file is deleted or moved away, the
+slot is marked as token-absent and `C_WaitForSlotEvent` fires again.
+
+### 5.5 Security considerations
+
+- The FSDIR backend provides **no physical-presence guarantee**. Any process
+  with read access to the directory can attempt a PIN brute-force attack on
+  the `.p11k` file. Use filesystem permissions (`chmod 700` on the directory,
+  `chmod 600` on `.p11k` files) and OS-level access controls.
+- Keys are **decrypted into mlock'd memory** at `C_Login` time and zeroed at
+  `C_Logout` / `C_Finalize`. The plaintext never touches swap.
+- For high-assurance use, combine FSDIR with a LUKS volume or tmpfs. The
+  `.p11k` file's AES-256-GCM auth tag detects any tampering with the
+  ciphertext.
+
+---
+
+## 6. Soft Token
 
 The soft token (slot 0) is always present. It uses wolfCrypt directly -- no
 hardware required.
@@ -581,7 +693,7 @@ functions (`wp11_soft_key_new_ecc_p256`, `wp11_soft_key_new_rsa2048`) from
 
 ---
 
-## 6. Using wolfP11 with Common Tools
+## 7. Using wolfP11 with Common Tools
 
 The PKCS#11 module path in all examples below is `$LIB` =
 `/usr/local/lib/libwolfp11.so`. Adjust to your install location.
@@ -808,7 +920,7 @@ pkcs11:token=My%20Token;id=%01;type=private
 
 ---
 
-## 7. wolfProvider OpenSSL Integration
+## 8. wolfProvider OpenSSL Integration
 
 The wolfProvider patch closes the devId gap that prevents wolfProvider from
 routing OpenSSL operations through wolfHSM or wolfP11 backends.
@@ -851,7 +963,7 @@ wolfProvider version; see the wolfProvider documentation for
 
 ---
 
-## 8. Container Deployment
+## 9. Container Deployment
 
 Mount the USB flash keystore file into the container; wolfP11 treats its
 appearance in the watch directory as a drive insertion:
@@ -881,7 +993,7 @@ lsusb | grep -i yubikey
 
 ---
 
-## 9. Auditing
+## 10. Auditing
 
 wolfP11 does not emit its own audit log. Use system-level logging:
 
@@ -898,7 +1010,7 @@ application using wolfP11, not in wolfP11 itself.
 
 ---
 
-## 10. PKCS#11 Conformance Notes
+## 11. PKCS#11 Conformance Notes
 
 wolfP11 implements the subset of PKCS#11 v2.40 used by real applications.
 Known deviations from the spec:
@@ -919,9 +1031,9 @@ Known deviations from the spec:
 - **ECDSA signatures** are returned as DER-encoded
   `SEQUENCE { r INTEGER, s INTEGER }`, per PKCS#11 v2.40 sec.2.3.1.
 
-- **`C_WaitForSlotEvent`** is implemented for flash keystore hot-plug
-  detection via inotify. USB hardware token hot-plug support depends on
-  the libusb hotplug callback being available on the host.
+- **`C_WaitForSlotEvent`** is implemented for flash keystore and FSDIR
+  hot-plug detection via inotify. USB hardware token hot-plug support
+  depends on the libusb hotplug callback being available on the host.
 
 - **40 of 68 C_* functions** return `CKR_FUNCTION_NOT_SUPPORTED`. The
   implemented subset covers key generation, import, sign, verify, decrypt,
@@ -930,7 +1042,7 @@ Known deviations from the spec:
 
 ---
 
-## 11. Compile-Time Configuration Reference
+## 12. Compile-Time Configuration Reference
 
 All macros use the `WOLFP11_CFG_` prefix. Override with `-D` on the compiler
 command line or via `CFLAGS=` in the make invocation.
@@ -943,11 +1055,20 @@ command line or via `CFLAGS=` in the make invocation.
 | `WOLFP11_CFG_USB_BACKEND` | off | Enable USB hardware token backend |
 | `WOLFP11_CFG_WOLFHSM_BACKEND` | off | Enable wolfHSM backend |
 | `WOLFP11_CFG_USB_FLASH_BACKEND` | off | Enable USB flash drive keystore backend |
-| `WOLFP11_CFG_USB_FLASH_WATCH_DIR` | `"/run/media"` | Directory inotify watches for `.p11k` files |
+| `WOLFP11_CFG_USB_FLASH_WATCH_DIR` | `"/run/media"` | Directory inotify watches for `.p11k` files (USB flash backend) |
+| `WOLFP11_CFG_FSDIR_BACKEND` | off | Enable filesystem directory keystore backend |
+| `WOLFP11_CFG_FSDIR_PATH` | `"/var/lib/wolfp11"` | Directory inotify watches for `.p11k` files (FSDIR backend) |
 | `WOLFP11_CFG_TEST_USB` | off | Enable hardware-dependent tests |
+| `WOLFP11_CFG_TEST_INOTIFY` | off | Enable timing-sensitive inotify arrival/departure tests |
 
-Example -- change the watch directory:
+Example -- change the USB flash watch directory:
 
 ```sh
 make USBFLASH=1 CFLAGS='-DWOLFP11_CFG_USB_FLASH_WATCH_DIR=\"/mnt/tokens\"'
+```
+
+Example -- change the FSDIR watched directory at build time:
+
+```sh
+make FSDIR=1 CFLAGS='-DWOLFP11_CFG_FSDIR_PATH=\"/etc/wolfp11/keys\"'
 ```

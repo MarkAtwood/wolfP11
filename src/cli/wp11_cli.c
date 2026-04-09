@@ -56,6 +56,30 @@ static int cmd_version(void)
 /* Copy a fixed-width PKCS#11 string field (space-padded, not NUL-terminated)
  * into buf and NUL-terminate it, stripping trailing spaces.
  * n is the field width; buf must hold n+1 bytes. */
+/* wolfP11-bvx0 + wolfP11-g5j3: validate a decimal slot-ID string.
+ * Checks syntax (decimal, no trailing chars) and range [0, WOLFP11_CFG_MAX_SLOTS).
+ * Prints its own error and returns -1 on failure; sets *out and returns 0 on
+ * success.  Centralises the strtoul pattern that was duplicated in three
+ * CLI commands, each missing the upper-bound check. */
+static int parse_slot_id(const char *str, CK_SLOT_ID *out)
+{
+    char          *end = NULL;
+    unsigned long  v;
+    errno = 0;
+    v = strtoul(str, &end, 10);
+    if (errno != 0 || end == str || *end != '\0') {
+        fprintf(stderr, "invalid slot number: %s\n", str);
+        return -1;
+    }
+    if (v >= (unsigned long)WOLFP11_CFG_MAX_SLOTS) {
+        fprintf(stderr, "slot %lu out of range (max %lu)\n",
+                v, (unsigned long)(WOLFP11_CFG_MAX_SLOTS - 1u));
+        return -1;
+    }
+    *out = (CK_SLOT_ID)v;
+    return 0;
+}
+
 static void pkcs11_str(const CK_UTF8CHAR *field, CK_ULONG n, char *buf)
 {
     CK_ULONG i;
@@ -269,11 +293,7 @@ static int cmd_list_keys(int argc, char *argv[])
     int found_any = 0;
 
     if (argc >= 2) {
-        char *end = NULL;
-        errno = 0;
-        filter_slot = (CK_SLOT_ID)strtoul(argv[1], &end, 10);
-        if (errno != 0 || end == argv[1] || *end != '\0') {
-            fprintf(stderr, "usage: wp11 list-keys [slot]\n");
+        if (parse_slot_id(argv[1], &filter_slot) < 0) {
             return 1;
         }
         filter_set = 1;
@@ -1412,10 +1432,9 @@ static int cmd_attest(int argc, char *argv[])
     CK_FUNCTION_LIST_PTR fl = NULL;
     CK_RV                rv;
     CK_SLOT_ID           slot_id;
-    uint8_t              piv_slot;
+    uint8_t              piv_slot = WP11_PIV_SLOT_AUTH; /* wolfP11-g5j3: init */
     uint8_t              der[WP11_PIV_CERT_MAX_LEN];
     size_t               derlen = sizeof(der);
-    char                *end    = NULL;
     int                  rc;
 
     if (argc < 3) {
@@ -1423,10 +1442,7 @@ static int cmd_attest(int argc, char *argv[])
         return 1;
     }
 
-    errno = 0;
-    slot_id = (CK_SLOT_ID)strtoul(argv[1], &end, 10);
-    if (errno != 0 || end == argv[1] || *end != '\0') {
-        fprintf(stderr, "invalid slot number: %s\n", argv[1]);
+    if (parse_slot_id(argv[1], &slot_id) < 0) {
         return 1;
     }
 
@@ -1485,16 +1501,12 @@ int main(int argc, char *argv[])
         return cmd_list_tokens();
     }
     if (strcmp(argv[1], "list-mechanisms") == 0) {
-        char      *end = NULL;
         CK_SLOT_ID slot;
         if (argc < 3) {
             fprintf(stderr, "usage: wp11 list-mechanisms <slot>\n");
             return 1;
         }
-        errno = 0;
-        slot = (CK_SLOT_ID)strtoul(argv[2], &end, 10);
-        if (errno != 0 || end == argv[2] || *end != '\0') {
-            fprintf(stderr, "invalid slot number: %s\n", argv[2]);
+        if (parse_slot_id(argv[2], &slot) < 0) {
             return 1;
         }
         return cmd_list_mechanisms(slot);

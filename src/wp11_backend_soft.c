@@ -90,19 +90,31 @@ wp11_soft_key_t *wp11_soft_key_new_ecc_p256(void)
 
 /* wolfP11-39t: P-384 key constructor -- parallel to wp11_soft_key_new_ecc_p256.
  * ECC_SECP384R1 key size is 48 bytes; uncompressed public key is 97 bytes. */
+/* wolfP11-z2fo: standardized to the verbose P-256 error-handling style for
+ * consistency and reviewability. */
 wp11_soft_key_t *wp11_soft_key_new_ecc_p384(void)
 {
     wp11_soft_key_t *k = (wp11_soft_key_t *)calloc(1, sizeof(*k));
-    if (k == NULL) return NULL;
+    if (k == NULL) {
+        return NULL;
+    }
 
-    if (wc_InitRng(&k->rng) != 0) { free(k); return NULL; }
+    if (wc_InitRng(&k->rng) != 0) {
+        free(k);
+        return NULL;
+    }
 
     if (wc_ecc_init(&k->ecc) != 0) {
-        wc_FreeRng(&k->rng); free(k); return NULL;
+        wc_FreeRng(&k->rng);
+        free(k);
+        return NULL;
     }
 
     if (wc_ecc_make_key_ex(&k->rng, 48, &k->ecc, ECC_SECP384R1) != 0) {
-        wc_ecc_free(&k->ecc); wc_FreeRng(&k->rng); free(k); return NULL;
+        wc_ecc_free(&k->ecc);
+        wc_FreeRng(&k->rng);
+        free(k);
+        return NULL;
     }
 
     k->key_type = WP11_SOFT_KEY_ECC;
@@ -297,6 +309,10 @@ static int soft_sign(const wp11_key_handle_t *handle,
         if (k->key_type != WP11_SOFT_KEY_RSA) {
             return -1;
         }
+        /* wolfP11-jhb3: size_t is 64 bits on LP64; word32 is 32 bits.
+         * A cast of inlen > UINT32_MAX silently truncates to a small value,
+         * turning the input into a short prefix and signing garbage. */
+        if (inlen > (size_t)UINT32_MAX) return -1;
         wlen = (word32)*siglen;
         ret = wc_RsaSSL_Sign(in, (word32)inlen, sig, wlen, &k->rsa, &k->rng);
         if (ret < 0) {
@@ -417,6 +433,8 @@ static int soft_decrypt(const wp11_key_handle_t *handle,
         if (k->key_type != WP11_SOFT_KEY_RSA) {
             return -1;
         }
+        /* wolfP11-jhb3: guard both operands before the word32 cast. */
+        if (ctlen > (size_t)UINT32_MAX || *ptlen > (size_t)UINT32_MAX) return -1;
         ret = wc_RsaPrivateDecrypt(ct, (word32)ctlen,
                                    pt, (word32)*ptlen,
                                    &k->rsa);

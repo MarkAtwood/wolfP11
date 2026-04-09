@@ -67,6 +67,18 @@
 #define WOLFP11_CFG_USB_FLASH_WATCH_DIR "/run/media"
 #endif
 
+/* Enable filesystem directory keystore backend (inotify-based; flat dir).
+ * When enabled, wolfP11 watches WOLFP11_CFG_FSDIR_PATH for .p11k files and
+ * creates a PKCS#11 slot for each one found. */
+/* #define WOLFP11_CFG_FSDIR_BACKEND */
+
+/* Directory to watch for .p11k keystore files (FSDIR backend).
+ * Override at runtime with the WOLFP11_FSDIR_PATH environment variable.
+ * Override at compile time with -DWOLFP11_CFG_FSDIR_PATH='"your/path"' */
+#ifndef WOLFP11_CFG_FSDIR_PATH
+#define WOLFP11_CFG_FSDIR_PATH "/var/lib/wolfp11"
+#endif
+
 /* Path for the soft-token persistent keystore file.
  * NULL (the default) means use $HOME/.wolfp11/soft.p11k at runtime.
  * Override the runtime env var WOLFP11_SOFT_KEYSTORE_PATH takes precedence

@@ -123,6 +123,55 @@ static int ber_len_decode(const uint8_t *buf, size_t buflen,
 }
 
 /* -------------------------------------------------------------------------
+ * tlv_expect -- parse a single BER-TLV element with a known 1-byte tag.
+ *
+ * Validates the tag byte, decodes the BER-TLV length via ber_len_decode(),
+ * and verifies the value fits within [*p_pos, end).  The value length is
+ * returned in *out_len; the value data begins at buf[*p_pos] on success.
+ *
+ * Returns:  0                    -- success; *p_pos advanced to start of value
+ *           WP11_TLV_ERR_TAG (-1) -- tag does not match expected_tag
+ *           WP11_TLV_ERR_ENC (-2) -- position out of bounds, truncated length
+ *                                    field, or value overruns end
+ *
+ * On error, *p_pos is unchanged.
+ *
+ * Covers only 1-byte tags.  Two-byte tags (e.g. 0x7F49 in generate_key) are
+ * handled inline at those call sites.
+ * ---------------------------------------------------------------------- */
+#define WP11_TLV_ERR_TAG (-1)
+#define WP11_TLV_ERR_ENC (-2)
+
+static int tlv_expect(const uint8_t *buf, size_t *p_pos, size_t end,
+                      uint8_t expected_tag, size_t *out_len)
+{
+    size_t pos = *p_pos;
+    size_t vlen;
+    size_t consumed;
+
+    if (pos >= end) {
+        return WP11_TLV_ERR_ENC;
+    }
+    if (buf[pos] != expected_tag) {
+        return WP11_TLV_ERR_TAG;
+    }
+    pos++;
+
+    if (ber_len_decode(buf + pos, end - pos, &vlen, &consumed) != 0) {
+        return WP11_TLV_ERR_ENC;
+    }
+    pos += consumed;
+
+    if (vlen > end - pos) {
+        return WP11_TLV_ERR_ENC;
+    }
+
+    *out_len = vlen;
+    *p_pos   = pos;
+    return 0;
+}
+
+/* -------------------------------------------------------------------------
  * Internal helper: extract SW1/SW2 from a response buffer
  * ---------------------------------------------------------------------- */
 
@@ -213,10 +262,13 @@ int wp11_piv_select(wp11_ccid_ctx_t *ccid)
     if (resplen > 2u) {
         size_t body_len = resplen - 2u;
         size_t pos = 0;
+        int    fci_present = 0;
+        int    found_aid   = 0;
         /* Skip outer FCI template tag (0x6F or 0x61) and its length field */
         if (pos < body_len && (resp[pos] == 0x6Fu || resp[pos] == 0x61u)) {
             size_t skip_len;
             size_t skip_consumed;
+            fci_present = 1;
             pos++;
             if (pos < body_len &&
                 ber_len_decode(resp + pos, body_len - pos,
@@ -240,9 +292,17 @@ int wp11_piv_select(wp11_ccid_ctx_t *ccid)
                     memcmp(resp + pos, WP11_PIV_AID, WP11_PIV_AID_LEN) != 0) {
                     return WP11_PIV_ERR_SW; /* Wrong applet selected */
                 }
+                found_aid = 1;
                 break;
             }
             pos += tlen;
+        }
+        /* wolfP11-bv5w: if the card returned an FCI template but did not
+         * include the DF-name tag (0x84), we cannot confirm which applet was
+         * selected.  Reject to prevent silent applet confusion on multi-applet
+         * tokens where malformed FCI could mask the wrong applet being active. */
+        if (fci_present && !found_aid) {
+            return WP11_PIV_ERR_ENCODING;
         }
     }
 
@@ -320,14 +380,23 @@ int wp11_piv_verify_pin(wp11_ccid_ctx_t *ccid,
  *   Two-byte long form (256..65535): 0x82 + 2 bytes = 3 bytes
  *
  * buf must have at least 3 bytes of space.
- * Returns the number of bytes written (1, 2, or 3).
+ * Returns the number of bytes written (1, 2, or 3), or 0 on error.
  *
  * wolfP11-oki: this is the companion encoder to ber_len_decode.  Prior to
  * this function, wp11_piv_sign used a bare (uint8_t) cast that truncated
  * lengths >= 128 to a single invalid byte (e.g. 0x80 = indefinite-length
- * marker, illegal in PIV per ISO 7816-4 Section 5.2.2). */
+ * marker, illegal in PIV per ISO 7816-4 Section 5.2.2).
+ *
+ * wolfP11-g33l: return 0 for values above the two-byte long-form maximum
+ * (0xFFFF).  The previous fallthrough silently encoded only the low 16 bits,
+ * producing a corrupt TLV frame.  PIV short APDUs are bounded to 255 bytes
+ * so this path is unreachable today, but the function must be safe for any
+ * caller regardless of that invariant.  Callers must treat 0 as an error. */
 static size_t ber_len_encode(uint8_t *buf, size_t val)
 {
+    if (val > 0xFFFFu) {
+        return 0u;
+    }
     if (val <= 0x7Fu) {
         buf[0] = (uint8_t)val;
         return 1u;
@@ -338,7 +407,7 @@ static size_t ber_len_encode(uint8_t *buf, size_t val)
         buf[1] = (uint8_t)val;
         return 2u;
     }
-    /* Two-byte long form (supports up to 0xFFFF) */
+    /* Two-byte long form (0x0100..0xFFFF) */
     buf[0] = 0x82u;
     buf[1] = (uint8_t)(val >> 8);
     buf[2] = (uint8_t)(val & 0xFFu);
@@ -438,6 +507,7 @@ int wp11_piv_sign(wp11_ccid_ctx_t *ccid,
     /* 7C [ber_len(dat_content_len)] */
     cmd[cmdlen++] = TAG_DAT;
     len_bytes = ber_len_encode(len_buf, dat_content_len);
+    if (len_bytes == 0u) return WP11_PIV_ERR_BUFSIZE;
     (void)memcpy(&cmd[cmdlen], len_buf, len_bytes);
     cmdlen += len_bytes;
 
@@ -448,6 +518,7 @@ int wp11_piv_sign(wp11_ccid_ctx_t *ccid,
     /* 81 [ber_len(challengelen)] [challenge bytes] */
     cmd[cmdlen++] = TAG_CHALLENGE;
     len_bytes = ber_len_encode(len_buf, challengelen);
+    if (len_bytes == 0u) return WP11_PIV_ERR_BUFSIZE;
     (void)memcpy(&cmd[cmdlen], len_buf, len_bytes);
     cmdlen += len_bytes;
     (void)memcpy(&cmd[cmdlen], challenge, challengelen);
@@ -504,58 +575,28 @@ int wp11_piv_sign(wp11_ccid_ctx_t *ccid,
      * We use ber_len_decode() for both length fields.
      */
 
-    /* Expect TAG_DAT (0x7C) first */
-    if (i >= data_end || resp[i] != TAG_DAT) {
-        return WP11_PIV_ERR_SW;
-    }
-    i++;
-
-    /* Decode 7C container length */
+    /* Parse SP 800-73-4 Table 13 response: 7C [len] 82 [siglen] [sig bytes].
+     * wolfP11-2cny: outer tag mismatch is ERR_ENCODING (garbled response body);
+     * inner tag mismatch is ERR_SW (card accepted command, returned wrong tag).
+     * tlv_expect() validates tag, decodes BER-TLV length, and bounds-checks. */
     {
-        size_t container_len;
-        size_t len_bytes;
+        size_t dat_len;
         size_t container_end;
+        size_t sig_data_len;
+        int    tlv_rc;
 
-        if (ber_len_decode(resp + i, data_end - i,
-                           &container_len, &len_bytes) < 0) {
-            return WP11_PIV_ERR_ENCODING;
-        }
-        i += len_bytes;
+        tlv_rc = tlv_expect(resp, &i, data_end, TAG_DAT, &dat_len);
+        if (tlv_rc == WP11_TLV_ERR_TAG) { return WP11_PIV_ERR_ENCODING; }
+        if (tlv_rc == WP11_TLV_ERR_ENC) { return WP11_PIV_ERR_ENCODING; }
+        container_end = i + dat_len;
 
-        /* container must fit within the data region */
-        if (container_len > data_end - i) {
-            return WP11_PIV_ERR_ENCODING;
-        }
-        container_end = i + container_len;
+        tlv_rc = tlv_expect(resp, &i, container_end, TAG_RESPONSE, &sig_data_len);
+        if (tlv_rc == WP11_TLV_ERR_TAG) { return WP11_PIV_ERR_SW; }
+        if (tlv_rc == WP11_TLV_ERR_ENC) { return WP11_PIV_ERR_ENCODING; }
 
-        /* Expect TAG_RESPONSE (0x82) inside the 7C container */
-        if (i >= container_end || resp[i] != TAG_RESPONSE) {
-            return WP11_PIV_ERR_SW;
-        }
-        i++;
-
-        /* Decode 82 signature length */
-        {
-            size_t sig_data_len;
-            size_t sig_len_bytes;
-
-            if (ber_len_decode(resp + i, container_end - i,
-                               &sig_data_len, &sig_len_bytes) < 0) {
-                return WP11_PIV_ERR_ENCODING;
-            }
-            i += sig_len_bytes;
-
-            /* signature bytes must fit in both the container and the caller's buffer */
-            if (i + sig_data_len > container_end) {
-                return WP11_PIV_ERR_ENCODING;
-            }
-            if (sig_data_len > *siglen) {
-                return WP11_PIV_ERR_BUFSIZE;
-            }
-
-            (void)memcpy(sig, resp + i, sig_data_len);
-            *siglen = sig_data_len;
-        }
+        if (sig_data_len > *siglen) { return WP11_PIV_ERR_BUFSIZE; }
+        (void)memcpy(sig, resp + i, sig_data_len);
+        *siglen = sig_data_len;
     }
 
     return WP11_PIV_OK;
@@ -613,10 +654,6 @@ int wp11_piv_get_cert(wp11_ccid_ctx_t *ccid,
     int             rc;
     const uint8_t  *tag_bytes = NULL;
     size_t          pos;
-    size_t          outer_val;
-    size_t          outer_consumed;
-    size_t          inner_val;
-    size_t          inner_consumed;
 
     if (ccid == NULL || cert == NULL || certlen == NULL) {
         return WP11_PIV_ERR_PARAM;
@@ -738,53 +775,26 @@ int wp11_piv_get_cert(wp11_ccid_ctx_t *ccid,
         return WP11_PIV_ERR_SW;
     }
 
-    /* Parse BER-TLV: outer container tag 0x53, DER cert inner tag 0x70 */
+    /* Parse BER-TLV: outer container 0x53, DER cert inner 0x70.
+     * tlv_expect() validates tag, decodes BER-TLV length, and bounds-checks. */
     pos = 0;
-    if (pos >= accum_len || accum[pos] != 0x53u) {
-        free(accum);
-        return WP11_PIV_ERR_ENCODING;
-    }
-    pos++;
+    {
+        size_t outer_len;
+        size_t inner_end;
+        size_t inner_len;
+        int    tlv_rc;
 
-    if (ber_len_decode(accum + pos, accum_len - pos,
-                       &outer_val, &outer_consumed) != 0) {
-        free(accum);
-        return WP11_PIV_ERR_ENCODING;
-    }
-    pos += outer_consumed;
+        tlv_rc = tlv_expect(accum, &pos, accum_len, 0x53u, &outer_len);
+        if (tlv_rc != 0) { free(accum); return WP11_PIV_ERR_ENCODING; }
+        inner_end = pos + outer_len;
 
-    /* Validate outer container does not claim to extend beyond the buffer */
-    if (pos + outer_val > accum_len) {
-        free(accum);
-        return WP11_PIV_ERR_ENCODING;
-    }
+        tlv_rc = tlv_expect(accum, &pos, inner_end, 0x70u, &inner_len);
+        if (tlv_rc != 0) { free(accum); return WP11_PIV_ERR_ENCODING; }
 
-    /* Locate tag 0x70 (Certificate) inside the outer container */
-    if (pos >= accum_len || accum[pos] != 0x70u) {
-        free(accum);
-        return WP11_PIV_ERR_ENCODING;
+        if (inner_len > *certlen) { free(accum); return WP11_PIV_ERR_BUFSIZE; }
+        memcpy(cert, accum + pos, inner_len);
+        *certlen = inner_len;
     }
-    pos++;
-
-    if (ber_len_decode(accum + pos, accum_len - pos,
-                       &inner_val, &inner_consumed) != 0) {
-        free(accum);
-        return WP11_PIV_ERR_ENCODING;
-    }
-    pos += inner_consumed;
-
-    if (pos + inner_val > accum_len) {
-        free(accum);
-        return WP11_PIV_ERR_ENCODING;
-    }
-
-    if (inner_val > *certlen) {
-        free(accum);
-        return WP11_PIV_ERR_BUFSIZE;
-    }
-
-    memcpy(cert, accum + pos, inner_val);
-    *certlen = inner_val;
 
     free(accum);
     return WP11_PIV_OK;
@@ -1153,6 +1163,7 @@ int wp11_piv_ecdh(wp11_ccid_ctx_t *ccid,
     /* 7C [ber_len(dat_content_len)] */
     cmd[cmdlen++] = TAG_DAT;
     len_bytes = ber_len_encode(len_buf, dat_content_len);
+    if (len_bytes == 0u) return WP11_PIV_ERR_BUFSIZE;
     (void)memcpy(&cmd[cmdlen], len_buf, len_bytes);
     cmdlen += len_bytes;
 
@@ -1163,6 +1174,7 @@ int wp11_piv_ecdh(wp11_ccid_ctx_t *ccid,
     /* 85 [ber_len(peer_pub_len)] [peer_pub bytes] */
     cmd[cmdlen++] = TAG_EXPONENT;
     len_bytes = ber_len_encode(len_buf, peer_pub_len);
+    if (len_bytes == 0u) return WP11_PIV_ERR_BUFSIZE;
     (void)memcpy(&cmd[cmdlen], len_buf, len_bytes);
     cmdlen += len_bytes;
     (void)memcpy(&cmd[cmdlen], peer_pub, peer_pub_len);
@@ -1203,52 +1215,27 @@ int wp11_piv_ecdh(wp11_ccid_ctx_t *ccid,
         return WP11_PIV_ERR_ENCODING;
     }
 
-    /* Response: 7C [len] 82 [secretlen] [secret bytes] */
-    if (i >= data_end || resp[i] != TAG_DAT) {
-        return WP11_PIV_ERR_SW;
-    }
-    i++;
-
+    /* Parse SP 800-73-4 Table 13 response: 7C [len] 82 [secretlen] [secret].
+     * tlv_expect() validates tag, decodes BER-TLV length, and bounds-checks. */
     {
-        size_t container_len;
+        size_t dat_len;
         size_t container_end;
+        size_t secret_data_len;
+        int    tlv_rc;
 
-        if (ber_len_decode(resp + i, data_end - i,
-                           &container_len, &len_bytes) < 0) {
-            return WP11_PIV_ERR_ENCODING;
-        }
-        i += len_bytes;
+        tlv_rc = tlv_expect(resp, &i, data_end, TAG_DAT, &dat_len);
+        if (tlv_rc == WP11_TLV_ERR_TAG) { return WP11_PIV_ERR_SW; }
+        if (tlv_rc == WP11_TLV_ERR_ENC) { return WP11_PIV_ERR_ENCODING; }
+        container_end = i + dat_len;
 
-        if (container_len > data_end - i) {
-            return WP11_PIV_ERR_ENCODING;
-        }
-        container_end = i + container_len;
+        tlv_rc = tlv_expect(resp, &i, container_end, TAG_RESPONSE,
+                            &secret_data_len);
+        if (tlv_rc == WP11_TLV_ERR_TAG) { return WP11_PIV_ERR_SW; }
+        if (tlv_rc == WP11_TLV_ERR_ENC) { return WP11_PIV_ERR_ENCODING; }
 
-        if (i >= container_end || resp[i] != TAG_RESPONSE) {
-            return WP11_PIV_ERR_SW;
-        }
-        i++;
-
-        {
-            size_t secret_data_len;
-            size_t secret_len_bytes;
-
-            if (ber_len_decode(resp + i, container_end - i,
-                               &secret_data_len, &secret_len_bytes) < 0) {
-                return WP11_PIV_ERR_ENCODING;
-            }
-            i += secret_len_bytes;
-
-            if (i + secret_data_len > container_end) {
-                return WP11_PIV_ERR_ENCODING;
-            }
-            if (secret_data_len > *sharedlen) {
-                return WP11_PIV_ERR_BUFSIZE;
-            }
-
-            (void)memcpy(shared, resp + i, secret_data_len);
-            *sharedlen = secret_data_len;
-        }
+        if (secret_data_len > *sharedlen) { return WP11_PIV_ERR_BUFSIZE; }
+        (void)memcpy(shared, resp + i, secret_data_len);
+        *sharedlen = secret_data_len;
     }
 
     return WP11_PIV_OK;

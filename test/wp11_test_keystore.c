@@ -944,6 +944,163 @@ static int test_keystore_cert_pem_to_der(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Test: bad version byte returns WP11_KEYSTORE_ERR_BAD_VERSION
+ *
+ * Oracle: hand-crafted file with valid magic but version=0x02.
+ * The loader checks the version byte after the magic check, before any crypto.
+ * ---------------------------------------------------------------------- */
+#define TMPFILE_BADVER  "/tmp/wp11_ks_badver.p11k"
+
+static int test_keystore_bad_version(void)
+{
+    /* 80-byte file: valid magic, wrong version (0x02), valid iter count.
+     * Layout mirrors test_keystore_bad_magic -- only byte [4] differs. */
+    static const uint8_t bad[80] = {
+        'P', '1', '1', 'K',              /* [0..3]  magic  -- correct */
+        0x02,                             /* [4]     version -- wrong (must be 0x01) */
+        /* [5..36] salt: 32 zero bytes */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+        /* [37..40] iter: 100000 = 0x000186A0 (valid, so version check runs first) */
+        0x00, 0x01, 0x86, 0xA0,
+        /* [41..52] nonce: 12 zero bytes */
+        0,0,0,0,0,0, 0,0,0,0,0,0,
+        /* [53..56] ctlen: 0 */
+        0x00, 0x00, 0x00, 0x00,
+        /* [57..72] auth tag: 16 zero bytes */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+        /* [73..79] 7 extra zero bytes to reach 80 */
+        0,0,0,0,0,0,0
+    };
+    wp11_keystore_t *ks = NULL;
+    int ret;
+    int f = 0;
+
+    if (write_tmpfile(TMPFILE_BADVER, bad, sizeof(bad)) != 0) {
+        printf("SKIP: keystore_bad_version: could not write temp file\n");
+        return 0;
+    }
+
+    ret = wp11_keystore_load(TMPFILE_BADVER, TEST_PIN, TEST_PIN_LEN, &ks);
+    f += check(ret == WP11_KEYSTORE_ERR_BAD_VERSION,
+               "keystore_bad_version: version 0x02 returns WP11_KEYSTORE_ERR_BAD_VERSION");
+    f += check(ks == NULL, "keystore_bad_version: ks_out is NULL on failure");
+
+    unlink(TMPFILE_BADVER);
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * Test: iterations below minimum returns WP11_KEYSTORE_ERR_KDF_WEAK
+ *
+ * Oracle: hand-crafted file with valid magic, correct version, but
+ * iter=99999 (one below WP11_KEYSTORE_MIN_KDF_ITER=100000).
+ * ---------------------------------------------------------------------- */
+static int test_keystore_kdf_weak(void)
+{
+    /* 99999 = 0x0001869F in big-endian */
+    static const uint8_t bad[80] = {
+        'P', '1', '1', 'K',              /* [0..3]  magic  -- correct */
+        0x01,                             /* [4]     version -- correct */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, /* [5..36] salt */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+        /* [37..40] iter: 99999 = 0x0001869F -- one below minimum */
+        0x00, 0x01, 0x86, 0x9F,
+        0,0,0,0,0,0, 0,0,0,0,0,0,        /* [41..52] nonce */
+        0x00, 0x00, 0x00, 0x00,           /* [53..56] ctlen */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, /* [57..72] tag */
+        0,0,0,0,0,0,0                     /* [73..79] padding */
+    };
+    wp11_keystore_t *ks = NULL;
+    int ret;
+    int f = 0;
+
+    if (write_tmpfile(TMPFILE_WEAKKDF, bad, sizeof(bad)) != 0) {
+        printf("SKIP: keystore_kdf_weak: could not write temp file\n");
+        return 0;
+    }
+
+    ret = wp11_keystore_load(TMPFILE_WEAKKDF, TEST_PIN, TEST_PIN_LEN, &ks);
+    f += check(ret == WP11_KEYSTORE_ERR_KDF_WEAK,
+               "keystore_kdf_weak: iter=99999 returns WP11_KEYSTORE_ERR_KDF_WEAK");
+    f += check(ks == NULL, "keystore_kdf_weak: ks_out is NULL on failure");
+
+    unlink(TMPFILE_WEAKKDF);
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * Test: iter > INT_MAX returns WP11_KEYSTORE_ERR_BAD_ITER
+ *
+ * Oracle: hand-crafted file with iter=0x80000000 (2^31, exceeds INT_MAX).
+ * The loader guards against this to prevent undefined behaviour when casting
+ * uint32_t to int for wc_PBKDF2 (wolfP11-44h / wolfP11-wgxd).
+ * ---------------------------------------------------------------------- */
+#define TMPFILE_BADITER "/tmp/wp11_ks_baditer.p11k"
+
+static int test_keystore_bad_iter(void)
+{
+    /* 0x80000000 = 2147483648 > INT_MAX (2147483647) */
+    static const uint8_t bad[80] = {
+        'P', '1', '1', 'K',              /* [0..3]  magic  -- correct */
+        0x01,                             /* [4]     version -- correct */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, /* [5..36] salt */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
+        /* [37..40] iter: 0x80000000 = 2^31 > INT_MAX */
+        0x80, 0x00, 0x00, 0x00,
+        0,0,0,0,0,0, 0,0,0,0,0,0,        /* [41..52] nonce */
+        0x00, 0x00, 0x00, 0x00,           /* [53..56] ctlen */
+        0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, /* [57..72] tag */
+        0,0,0,0,0,0,0                     /* [73..79] padding */
+    };
+    wp11_keystore_t *ks = NULL;
+    int ret;
+    int f = 0;
+
+    if (write_tmpfile(TMPFILE_BADITER, bad, sizeof(bad)) != 0) {
+        printf("SKIP: keystore_bad_iter: could not write temp file\n");
+        return 0;
+    }
+
+    ret = wp11_keystore_load(TMPFILE_BADITER, TEST_PIN, TEST_PIN_LEN, &ks);
+    f += check(ret == WP11_KEYSTORE_ERR_BAD_ITER,
+               "keystore_bad_iter: iter=0x80000000 returns WP11_KEYSTORE_ERR_BAD_ITER");
+    f += check(ks == NULL, "keystore_bad_iter: ks_out is NULL on failure");
+
+    unlink(TMPFILE_BADITER);
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * Test: wp11_keystore_detect_key_type returns WP11_KEYSTORE_ERR_INVALID_DER
+ *       for bytes that parse as neither EC nor RSA private key DER.
+ *
+ * Oracle: fixed byte pattern known to fail both wc_EccPrivateKeyDecode and
+ * wc_RsaPrivateKeyDecode (verified by construction -- not a valid key DER).
+ * The return value must be exactly WP11_KEYSTORE_ERR_INVALID_DER, not just
+ * any negative value.
+ * ---------------------------------------------------------------------- */
+static int test_keystore_invalid_der(void)
+{
+    /* 32 bytes that are not valid EC or RSA DER.  The leading 0xFF byte
+     * is not a valid ASN.1 tag, so both decode paths fail immediately. */
+    static const uint8_t garbage[32] = {
+        0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8,
+        0xF7, 0xF6, 0xF5, 0xF4, 0xF3, 0xF2, 0xF1, 0xF0,
+        0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A, 0x09, 0x08,
+        0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00
+    };
+    int ret;
+    int f = 0;
+
+    ret = wp11_keystore_detect_key_type(garbage, sizeof(garbage));
+    f += check(ret == WP11_KEYSTORE_ERR_INVALID_DER,
+               "keystore_invalid_der: garbage bytes return WP11_KEYSTORE_ERR_INVALID_DER");
+
+    return f;
+}
+
+/* -------------------------------------------------------------------------
  * Helper: create a minimal keystore at path with a single EC key.
  * Returns 0 on success, -1 on skip (key generation failure).
  * ---------------------------------------------------------------------- */
@@ -1188,6 +1345,11 @@ static int test_keystore_concurrent_write_read(void)
     pthread_join(writer_thread, NULL);
     pthread_join(reader_thread, NULL);
 
+    /* wolfP11-b95n: verify the reader actually ran.  Without this check the
+     * test can pass trivially with all counts at zero if the reader thread
+     * was never scheduled. */
+    f += check(reader_result.ok_count + reader_result.error_count > 0,
+               "keystore_concurrent: reader executed at least one iteration");
     f += check(reader_result.bad_count == 0,
                "keystore_concurrent: no unexpected outcomes from concurrent reader");
     f += check(writer_result.result == 0,
@@ -1206,6 +1368,10 @@ int wp11_test_keystore(void)
     int failures = 0;
 
     failures += test_keystore_bad_magic();
+    failures += test_keystore_bad_version();
+    failures += test_keystore_kdf_weak();
+    failures += test_keystore_bad_iter();
+    failures += test_keystore_invalid_der();
     failures += test_keystore_truncated();
     failures += test_keystore_wrong_pin();
     failures += test_keystore_roundtrip();

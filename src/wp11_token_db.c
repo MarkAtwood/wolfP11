@@ -98,8 +98,15 @@ static const wp11_token_desc_t wp11_token_db[] = {
 #define WP11_TOKEN_DB_SIZE \
     (sizeof(wp11_token_db) / sizeof(wp11_token_db[0]))
 
-/* Compile-time check: update this count when entries are added or removed. */
-extern char wp11_token_db_count_check[(WP11_TOKEN_DB_SIZE == 7u) ? 1 : -1];
+/* wolfP11-wjbo: _Static_assert gives a human-readable error when the table
+ * count drifts (e.g. "Update WP11_TOKEN_DB_SIZE == N...").  The C99 fallback
+ * keeps the negative-array trick with a descriptive symbol name. */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(WP11_TOKEN_DB_SIZE == 7u,
+    "Update expected token count in wp11_token_db.c after adding or removing entries");
+#else
+extern char wp11_token_db_expected_7_entries[(WP11_TOKEN_DB_SIZE == 7u) ? 1 : -1];
+#endif
 
 /* Generic PIV fallback for tokens not in the table.
  * Uses WP11_QUIRK_SHORT_APDU as a conservative default -- assumes extended

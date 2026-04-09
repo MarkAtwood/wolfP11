@@ -36,6 +36,13 @@ typedef enum {
      * on proto that handles PIV/OpenPGP/PKCS15/FLASH MUST handle
      * WP11_PROTO_WOLFHSM explicitly or have a documented default. */
     WP11_PROTO_WOLFHSM  = 5,  /* wolfHSM server via WH_DEV_ID callback   */
+    /* Filesystem directory keystore slots: no CCID/APDU protocol.  Key
+     * operations are handled by wp11_backend_fsdir_ops.  The watched
+     * directory is a flat directory (not a USB mount hierarchy); files
+     * that appear/disappear there are treated as token arrival/departure.
+     * Any switch on proto MUST handle WP11_PROTO_FSDIR explicitly or have
+     * a documented default/fallthrough. */
+    WP11_PROTO_FSDIR    = 6,  /* Encrypted .p11k keystore in watched dir  */
 } wp11_proto_t;
 
 /* -------------------------------------------------------------------------

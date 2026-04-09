@@ -114,6 +114,15 @@ wp11_wolfhsm_key_priv_t *wp11_wolfhsm_alloc_key_priv(void    *ctx,
 
     if (ctx == NULL) return NULL;
 
+    /* wolfP11-4qza: catch misprovisioned RSA keys at setup time.  An RSA key
+     * with key_size < 11 cannot produce a valid PKCS#1 v1.5 padded block
+     * (minimum 11 bytes overhead per RFC 8017 sec.9.2).  pkcs1_v15_pad_sign
+     * would detect this at first sign (wolfP11-snp7), but erroring here
+     * makes the provisioning bug visible at key-load time instead. */
+    if (key_type == WP11_KEY_TYPE_RSA && key_size > 0u && key_size < 11u) {
+        return NULL;
+    }
+
     kp = (wp11_wolfhsm_key_priv_t *)malloc(sizeof(*kp));
     if (kp == NULL) return NULL;
 
@@ -138,6 +147,19 @@ static const wp11_wolfhsm_key_priv_t *hsm_entry(const wp11_key_handle_t *h)
  * PKCS#1 v1.5 padding helpers (sign / verify / decrypt paths)
  * ---------------------------------------------------------------------- */
 
+/* wolfP11-sh5s: named constants for the PKCS#1 v1.5 block structure
+ * (RFC 8017 sec.9.2 / sec.7.2):
+ *   0x00 | type (0x01 or 0x02) | PS (>= 8 bytes) | 0x00 separator | M
+ *
+ * MIN_OVERHEAD = HEADER_LEN(2) + MIN_PS_LEN(8) + separator(1) = 11 */
+#define PKCS1_V15_MIN_OVERHEAD  11u   /* minimum total padding overhead */
+#define PKCS1_V15_HEADER_LEN     2u   /* 0x00 + block-type byte */
+#define PKCS1_V15_MIN_PS_LEN     8u   /* minimum padding string length */
+/* FRAME_BYTES: header + separator = non-PS, non-message fixed bytes (3) */
+#define PKCS1_V15_FRAME_BYTES   (PKCS1_V15_HEADER_LEN + 1u)
+/* MIN_SEP_IDX: earliest valid index of the 0x00 separator (10) */
+#define PKCS1_V15_MIN_SEP_IDX   (PKCS1_V15_HEADER_LEN + PKCS1_V15_MIN_PS_LEN)
+
 /* Apply block-type 01 (signing) padding.
  * out[0..key_size-1] receives: 00 01 FF...FF 00 in[0..in_len-1]
  * Returns 0 on success, -1 if in_len is too large for key_size. */
@@ -146,16 +168,23 @@ static int pkcs1_v15_pad_sign(const uint8_t *in, size_t in_len,
 {
     size_t ps_len;
 
-    /* PKCS#1 v1.5 minimum overhead: 00 01 [PS>=8] 00 = 11 bytes */
-    if (in_len > key_size - 11u) return -1;
+    /* PKCS#1 v1.5 minimum overhead: 00 01 [PS>=8] 00 = 11 bytes.
+     * wolfP11-snp7: check key_size >= 11 BEFORE the subtraction.  If
+     * key_size < 11, key_size - 11u underflows to a huge size_t, the
+     * length check below always passes, ps_len also underflows, and
+     * memset writes far beyond the caller's padded[] stack buffer.
+     * Valid RSA keys are always >= 512 bits (64 bytes); only
+     * misprovisioning can produce key_size < 11. */
+    if (key_size < PKCS1_V15_MIN_OVERHEAD) return -1;
+    if (in_len > key_size - PKCS1_V15_MIN_OVERHEAD) return -1;
 
-    ps_len = key_size - in_len - 3u;   /* guaranteed >= 8 */
+    ps_len = key_size - in_len - PKCS1_V15_FRAME_BYTES;   /* guaranteed >= 8 */
 
     out[0] = 0x00u;
     out[1] = 0x01u;
-    memset(out + 2u, 0xFFu, ps_len);
-    out[2u + ps_len] = 0x00u;
-    memcpy(out + 3u + ps_len, in, in_len);
+    memset(out + PKCS1_V15_HEADER_LEN, 0xFFu, ps_len);
+    out[PKCS1_V15_HEADER_LEN + ps_len] = 0x00u;
+    memcpy(out + PKCS1_V15_FRAME_BYTES + ps_len, in, in_len);
     return 0;
 }
 
@@ -176,13 +205,13 @@ static int pkcs1_v15_unpad_verify(const uint8_t *buf, size_t buf_len,
 {
     size_t i;
 
-    if (buf_len < 11u) return -1;
+    if (buf_len < PKCS1_V15_MIN_OVERHEAD) return -1;
     if (buf[0] != 0x00u || buf[1] != 0x01u) return -1;
 
-    for (i = 2u; i < buf_len && buf[i] == 0xFFu; i++) { /* skip PS */ }
+    for (i = PKCS1_V15_HEADER_LEN; i < buf_len && buf[i] == 0xFFu; i++) { /* skip PS */ }
 
-    /* PS must be >= 8 bytes; buf[i] must be 0x00 separator */
-    if (i < 10u || i >= buf_len || buf[i] != 0x00u) return -1;
+    /* PS must be >= PKCS1_V15_MIN_PS_LEN bytes; buf[i] must be 0x00 separator */
+    if (i < PKCS1_V15_MIN_SEP_IDX || i >= buf_len || buf[i] != 0x00u) return -1;
 
     *msg     = buf + i + 1u;
     *msg_len = buf_len - i - 1u;
@@ -216,18 +245,18 @@ static int pkcs1_v15_unpad_decrypt(const uint8_t *buf, size_t buf_len,
     size_t   plain_len;
     unsigned bad      = 0u;
 
-    if (buf_len < 11u) return -1;
+    if (buf_len < PKCS1_V15_MIN_OVERHEAD) return -1;
 
     /* buf[0] and buf[1] are public structure -- branch is fine */
     bad |= (unsigned)(buf[0] != 0x00u);
     bad |= (unsigned)(buf[1] != 0x02u);
 
-    /* Scan every byte to find the first 0x00 at index >= 10.
+    /* Scan every byte to find the first 0x00 at index >= PKCS1_V15_MIN_SEP_IDX.
      * Loop count is fixed; no early exit.  Branchless select via
      * multiplicative idiom: sep_idx = hit ? i : sep_idx. */
-    for (i = 2u; i < buf_len; i++) {
+    for (i = PKCS1_V15_HEADER_LEN; i < buf_len; i++) {
         unsigned is_zero   = (unsigned)(buf[i] == 0x00u);
-        unsigned valid_pos = (unsigned)(i >= 10u);
+        unsigned valid_pos = (unsigned)(i >= PKCS1_V15_MIN_SEP_IDX);
         unsigned not_found = (unsigned)(sep_idx >= buf_len);
         unsigned hit       = is_zero & valid_pos & not_found;
         sep_idx = (size_t)(hit * i) + (size_t)((1u - hit) * sep_idx);

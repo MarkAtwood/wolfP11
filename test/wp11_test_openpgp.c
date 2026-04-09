@@ -344,6 +344,267 @@ static int test_pw_locked_sw(void)
 }
 
 /* -------------------------------------------------------------------------
+ * Test 8: authenticate_apdu
+ * INTERNAL AUTHENTICATE: verify APDU bytes and response data passthrough.
+ *
+ * Input data: 4 bytes {0x11, 0x22, 0x33, 0x44}.
+ * Expected APDU (OpenPGP spec §7.2.10):
+ *   00 88 00 00 04 11 22 33 44 00   (CLA INS P1 P2 Lc [data] Le)
+ * ---------------------------------------------------------------------- */
+
+static int test_authenticate_apdu(void)
+{
+    static const uint8_t data[]     = { 0x11u, 0x22u, 0x33u, 0x44u };
+    /* fake authentication response data + SW 90 00 */
+    static const uint8_t fake_resp[] = { 0xAAu, 0xBBu, 0xCCu, 0xDDu };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    uint8_t          resp_out[64];
+    size_t           resp_len = sizeof(resp_out);
+    int              rc;
+    int              f = 0;
+
+    memset(&st, 0, sizeof(st));
+    memcpy(st.resp_payload, fake_resp, sizeof(fake_resp));
+    st.resp_payload[sizeof(fake_resp)]      = 0x90u;
+    st.resp_payload[sizeof(fake_resp) + 1u] = 0x00u;
+    st.resp_payload_len = sizeof(fake_resp) + 2u;
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "authenticate_apdu: open_mock");
+    }
+
+    rc = wp11_openpgp_authenticate(ccid, data, sizeof(data), resp_out, &resp_len);
+    wp11_ccid_close(ccid);
+
+    /* APDU: 00 88 00 00 04 11 22 33 44 00 = 10 bytes */
+    f += check(rc == WP11_OPENPGP_OK,
+               "authenticate_apdu: returns WP11_OPENPGP_OK");
+    f += check(st.apdu_len == 10u,
+               "authenticate_apdu: APDU length is 10");
+    f += check(st.apdu[0] == 0x00u && st.apdu[1] == 0x88u &&
+               st.apdu[2] == 0x00u && st.apdu[3] == 0x00u,
+               "authenticate_apdu: CLA=00 INS=88 P1=00 P2=00");
+    f += check(st.apdu[4] == 0x04u,
+               "authenticate_apdu: Lc=04 (data length)");
+    f += check(memcmp(&st.apdu[5], data, sizeof(data)) == 0,
+               "authenticate_apdu: data bytes in APDU match input");
+    f += check(st.apdu[9] == 0x00u,
+               "authenticate_apdu: Le=00");
+    f += check(resp_len == sizeof(fake_resp) &&
+               memcmp(resp_out, fake_resp, sizeof(fake_resp)) == 0,
+               "authenticate_apdu: response data returned correctly");
+
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 9: authenticate_bad_sw
+ * SW 69 82 (conditions of use not satisfied) -> WP11_OPENPGP_ERR_SW
+ * ---------------------------------------------------------------------- */
+
+static int test_authenticate_bad_sw(void)
+{
+    static const uint8_t data[] = { 0xDEu, 0xADu };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    uint8_t          resp_out[64];
+    size_t           resp_len = sizeof(resp_out);
+    int              rc;
+
+    memset(&st, 0, sizeof(st));
+    set_sw_response(&st, 0x69u, 0x82u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "authenticate_bad_sw: open_mock");
+    }
+
+    rc = wp11_openpgp_authenticate(ccid, data, sizeof(data), resp_out, &resp_len);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_OPENPGP_ERR_SW,
+                 "authenticate_bad_sw: SW 69 82 returns WP11_OPENPGP_ERR_SW");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 10: authenticate_null_param
+ * NULL ccid / NULL data / NULL resp_out / NULL resplen -> WP11_OPENPGP_ERR_PARAM
+ * Also datalen==0 -> WP11_OPENPGP_ERR_PARAM (empty data not allowed).
+ * ---------------------------------------------------------------------- */
+
+static int test_authenticate_null_param(void)
+{
+    static const uint8_t data[] = { 0x01u };
+    uint8_t  resp_out[64];
+    size_t   resp_len = sizeof(resp_out);
+    int      f = 0;
+
+    f += check(wp11_openpgp_authenticate(NULL, data, sizeof(data),
+                                          resp_out, &resp_len)
+               == WP11_OPENPGP_ERR_PARAM,
+               "authenticate_null_param: NULL ccid returns ERR_PARAM");
+
+    f += check(wp11_openpgp_authenticate((wp11_ccid_ctx_t *)1u,
+                                          NULL, sizeof(data),
+                                          resp_out, &resp_len)
+               == WP11_OPENPGP_ERR_PARAM,
+               "authenticate_null_param: NULL data returns ERR_PARAM");
+
+    f += check(wp11_openpgp_authenticate((wp11_ccid_ctx_t *)1u,
+                                          data, 0u,
+                                          resp_out, &resp_len)
+               == WP11_OPENPGP_ERR_PARAM,
+               "authenticate_null_param: datalen=0 returns ERR_PARAM");
+
+    f += check(wp11_openpgp_authenticate((wp11_ccid_ctx_t *)1u,
+                                          data, sizeof(data),
+                                          NULL, &resp_len)
+               == WP11_OPENPGP_ERR_PARAM,
+               "authenticate_null_param: NULL resp_out returns ERR_PARAM");
+
+    f += check(wp11_openpgp_authenticate((wp11_ccid_ctx_t *)1u,
+                                          data, sizeof(data),
+                                          resp_out, NULL)
+               == WP11_OPENPGP_ERR_PARAM,
+               "authenticate_null_param: NULL resplen returns ERR_PARAM");
+
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 11: get_ard_apdu
+ * GET DATA DO 006E: verify APDU bytes and response data passthrough.
+ *
+ * Expected APDU (OpenPGP spec §7.2.3 / GET DATA):
+ *   00 CA 00 6E 00   (CLA INS P1=00 P2=6E Le=00)
+ * ---------------------------------------------------------------------- */
+
+static int test_get_ard_apdu(void)
+{
+    /* fake ARD content + SW 90 00 */
+    static const uint8_t fake_ard[] = { 0x6Eu, 0x03u, 0x11u, 0x22u, 0x33u };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    uint8_t          buf[64];
+    size_t           buflen = sizeof(buf);
+    int              rc;
+    int              f = 0;
+
+    memset(&st, 0, sizeof(st));
+    memcpy(st.resp_payload, fake_ard, sizeof(fake_ard));
+    st.resp_payload[sizeof(fake_ard)]      = 0x90u;
+    st.resp_payload[sizeof(fake_ard) + 1u] = 0x00u;
+    st.resp_payload_len = sizeof(fake_ard) + 2u;
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "get_ard_apdu: open_mock");
+    }
+
+    rc = wp11_openpgp_get_ard(ccid, buf, &buflen);
+    wp11_ccid_close(ccid);
+
+    /* APDU: 00 CA 00 6E 00 = 5 bytes */
+    f += check(rc == WP11_OPENPGP_OK,
+               "get_ard_apdu: returns WP11_OPENPGP_OK");
+    f += check(st.apdu_len == 5u,
+               "get_ard_apdu: APDU length is 5");
+    f += check(st.apdu[0] == 0x00u && st.apdu[1] == 0xCAu &&
+               st.apdu[2] == 0x00u && st.apdu[3] == 0x6Eu &&
+               st.apdu[4] == 0x00u,
+               "get_ard_apdu: CLA=00 INS=CA P1=00 P2=6E Le=00");
+    f += check(buflen == sizeof(fake_ard) &&
+               memcmp(buf, fake_ard, sizeof(fake_ard)) == 0,
+               "get_ard_apdu: ARD bytes returned correctly");
+
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 12: get_ard_bad_sw
+ * SW 6A 88 (referenced data not found) -> WP11_OPENPGP_ERR_SW
+ * ---------------------------------------------------------------------- */
+
+static int test_get_ard_bad_sw(void)
+{
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    uint8_t          buf[64];
+    size_t           buflen = sizeof(buf);
+    int              rc;
+
+    memset(&st, 0, sizeof(st));
+    set_sw_response(&st, 0x6Au, 0x88u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "get_ard_bad_sw: open_mock");
+    }
+
+    rc = wp11_openpgp_get_ard(ccid, buf, &buflen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_OPENPGP_ERR_SW,
+                 "get_ard_bad_sw: SW 6A 88 returns WP11_OPENPGP_ERR_SW");
+}
+
+/* -------------------------------------------------------------------------
+ * Test 13: get_ard_null_param
+ * ---------------------------------------------------------------------- */
+
+static int test_get_ard_null_param(void)
+{
+    uint8_t buf[64];
+    size_t  buflen = sizeof(buf);
+    int     f = 0;
+
+    f += check(wp11_openpgp_get_ard(NULL, buf, &buflen) == WP11_OPENPGP_ERR_PARAM,
+               "get_ard_null_param: NULL ccid returns ERR_PARAM");
+    f += check(wp11_openpgp_get_ard((wp11_ccid_ctx_t *)1u, NULL, &buflen)
+               == WP11_OPENPGP_ERR_PARAM,
+               "get_ard_null_param: NULL buf returns ERR_PARAM");
+    f += check(wp11_openpgp_get_ard((wp11_ccid_ctx_t *)1u, buf, NULL)
+               == WP11_OPENPGP_ERR_PARAM,
+               "get_ard_null_param: NULL buflen returns ERR_PARAM");
+
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * Test 14: get_ard_bufsize
+ * Response has 5 data bytes; caller provides a 2-byte buffer -> ERR_BUFSIZE.
+ * ---------------------------------------------------------------------- */
+
+static int test_get_ard_bufsize(void)
+{
+    static const uint8_t fake_ard[] = { 0x6Eu, 0x03u, 0x11u, 0x22u, 0x33u };
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    uint8_t          buf[2]; /* intentionally too small */
+    size_t           buflen = sizeof(buf);
+    int              rc;
+
+    memset(&st, 0, sizeof(st));
+    memcpy(st.resp_payload, fake_ard, sizeof(fake_ard));
+    st.resp_payload[sizeof(fake_ard)]      = 0x90u;
+    st.resp_payload[sizeof(fake_ard) + 1u] = 0x00u;
+    st.resp_payload_len = sizeof(fake_ard) + 2u;
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "get_ard_bufsize: open_mock");
+    }
+
+    rc = wp11_openpgp_get_ard(ccid, buf, &buflen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_OPENPGP_ERR_BUFSIZE,
+                 "get_ard_bufsize: 2-byte buffer for 5-byte ARD returns ERR_BUFSIZE");
+}
+
+/* -------------------------------------------------------------------------
  * Entry point
  * ---------------------------------------------------------------------- */
 
@@ -358,6 +619,13 @@ int wp11_test_openpgp(void)
     failures += test_compute_sig_apdu();
     failures += test_pw_bad_sw();
     failures += test_pw_locked_sw();
+    failures += test_authenticate_apdu();
+    failures += test_authenticate_bad_sw();
+    failures += test_authenticate_null_param();
+    failures += test_get_ard_apdu();
+    failures += test_get_ard_bad_sw();
+    failures += test_get_ard_null_param();
+    failures += test_get_ard_bufsize();
 
     return failures;
 }

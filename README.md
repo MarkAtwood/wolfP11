@@ -15,6 +15,7 @@ wolfP11 is a PKCS#11 2.40 shared library (`libwolfp11.so`) that connects applica
 - **USB hardware tokens** -- YubiKey, NitroKey, Feitian, CAC/PIV cards; communicates directly over libusb with no pcscd or any system daemon required
 - **wolfHSM server** -- routes PKCS#11 operations to a wolfHSM server over shared memory or TCP; the private key never leaves the secure enclave
 - **USB flash drive keystore** -- encrypted `.p11k` keystore files on removable USB storage, hotplug-detected via inotify; physical possession without dedicated hardware
+- **Filesystem directory keystore** -- watches a configured directory for `.p11k` files via inotify; works with tmpfs, LUKS, or any mounted volume; no USB required
 
 Any PKCS#11-aware application -- OpenSSL, GnuTLS, SSH agents, signing tools -- works against any backend with no code changes.
 
@@ -69,6 +70,7 @@ wolfP11 PKCS#11 layer     (C_* functions -- libwolfp11.so)
 | Soft token backend | `src/wp11_backend_soft.c` | wolfCrypt direct (no hardware) |
 | USB flash keystore | `wolfp11/wp11_keystore.h`, `src/wp11_keystore.c` | AES-256-GCM + PBKDF2 encrypted `.p11k` file format; inotify hotplug |
 | USB flash backend | `src/wp11_backend_usb_flash.c` | sign/verify/decrypt against loaded `.p11k` keystore |
+| FSDIR backend | `src/wp11_backend_fsdir.c` | sign/verify/decrypt for `.p11k` keystores in a watched directory |
 | wolfHSM backend | `wolfp11/wp11_backend.h`, `src/wp11_backend_wolfhsm.c` | wolfHSM client integration |
 | Settings | `wolfp11/wp11_settings.h` | Compile-time configuration defaults |
 | CLI | `src/cli/wp11_cli.c` | `wp11` command-line tool |
@@ -346,8 +348,11 @@ All configuration macros use the `WOLFP11_CFG_` prefix. Defaults are in `wolfp11
 | `WOLFP11_CFG_USB_BACKEND` | *(undefined)* | Enable USB hardware token backend |
 | `WOLFP11_CFG_WOLFHSM_BACKEND` | *(undefined)* | Enable wolfHSM server backend |
 | `WOLFP11_CFG_USB_FLASH_BACKEND` | *(undefined)* | Enable USB flash drive keystore backend |
-| `WOLFP11_CFG_USB_FLASH_WATCH_DIR` | `"/run/media"` | Directory inotify watches for `.p11k` files |
+| `WOLFP11_CFG_USB_FLASH_WATCH_DIR` | `"/run/media"` | Directory inotify watches for `.p11k` files (USB flash backend) |
+| `WOLFP11_CFG_FSDIR_BACKEND` | *(undefined)* | Enable filesystem directory keystore backend |
+| `WOLFP11_CFG_FSDIR_PATH` | `"/var/lib/wolfp11"` | Directory inotify watches for `.p11k` files (FSDIR backend) |
 | `WOLFP11_CFG_TEST_USB` | *(undefined)* | Enable hardware-dependent tests |
+| `WOLFP11_CFG_TEST_INOTIFY` | *(undefined)* | Enable timing-sensitive inotify arrival/departure tests |
 
 ---
 
@@ -390,6 +395,7 @@ wolfP11/
 |   +-- wp11_backend_soft.c  wolfCrypt soft token backend
 |   +-- wp11_keystore.c      Encrypted .p11k keystore (AES-256-GCM, PBKDF2, mlock)
 |   +-- wp11_backend_usb_flash.c  USB flash drive keystore backend
+|   +-- wp11_backend_fsdir.c      Filesystem directory keystore backend
 |   +-- cli/
 |       +-- wp11_cli.c       wp11 command-line tool
 +-- test/
@@ -401,6 +407,7 @@ wolfP11/
 |   +-- wp11_test_pkcs11.c   PKCS#11 layer tests
 |   +-- wp11_test_keystore.c Keystore and flash backend tests
 |   +-- wp11_test_backend_soft.c  Soft backend unit tests
+|   +-- wp11_test_fsdir.c   Filesystem directory backend integration tests
 |   +-- vectors/             APDU test reference data (JSON, spec-derived)
 +-- provider_patch/
 |   +-- wolfprovider_devid.patch  Patch closing wolfProvider devId gap

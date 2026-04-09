@@ -18,7 +18,7 @@
  * No external CBOR library: the payload structure is fixed (4 fields per entry),
  * a custom bounded parser is ~200 lines and easier to audit than a general library.
  */
-#define _POSIX_C_SOURCE 200112L  /* mlock, munlock */
+#define _POSIX_C_SOURCE 200809L  /* mlock, munlock, O_NOFOLLOW */
 
 #include "wolfp11/wp11_keystore.h"
 #include "wolfp11/wp11_settings.h"
@@ -423,6 +423,15 @@ static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos)
          * parser defensible on all targets regardless of those invariants. */
         size_t cur = pos + (size_t)head;
         if (val > (uint64_t)(SIZE_MAX / 2u)) {
+            return WP11_KEYSTORE_ERR_CBOR;
+        }
+        /* wolfP11-4sra: a second tighter bound prevents a DoS where a forged
+         * CBOR map claims a huge pair count (e.g. 2^32) that passes the
+         * SIZE_MAX/2 overflow guard but triggers billions of cbor_skip() calls
+         * before buffer exhaustion fires.  Each CBOR pair requires at minimum
+         * 2 bytes (1-byte key + 1-byte value), so a MAX_CT_LEN ciphertext
+         * cannot contain more than MAX_CT_LEN/2 pairs. */
+        if ((size_t)val > WP11_KEYSTORE_MAX_CT_LEN / 2u) {
             return WP11_KEYSTORE_ERR_CBOR;
         }
         for (i = 0; i < (size_t)val * 2u; i++) {
@@ -913,7 +922,10 @@ int wp11_keystore_load(const char      *path,
      * behaviour is undefined.  Such a value is unrealistic (>2B iterations
      * would take years) but an adversarially crafted file could set it. */
     if (iter > (uint32_t)INT_MAX) {
-        rc = WP11_KEYSTORE_ERR_KDF_WEAK;
+        /* wolfP11-wgxd: iter > INT_MAX is an out-of-range format error, not
+         * a weak KDF.  ERR_KDF_WEAK means "too few iterations"; this is
+         * "iteration count overflows the KDF API's int parameter". */
+        rc = WP11_KEYSTORE_ERR_BAD_ITER;
         goto cleanup;
     }
     wc_rc = wc_PBKDF2(aes_key,
@@ -1281,7 +1293,13 @@ int wp11_keystore_create(const char             *path,
     write_u32be(hdr + WP11_P11K_OFF_CTLEN, (uint32_t)plain_len);
 
     /* Write file: header, ciphertext, tag. */
-    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    /* wolfP11-tb0k: O_NOFOLLOW prevents following a symlink at the final path
+     * component.  Without it, open(O_CREAT|O_TRUNC) follows a symlink and
+     * overwrites the symlink target, which on multi-user systems lets an
+     * attacker redirect key material to an attacker-controlled path.
+     * O_NOFOLLOW fails with ELOOP if path is a symlink; regular files are
+     * unaffected. */
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
     if (fd < 0) {
         rc = WP11_KEYSTORE_ERR_IO;
         goto cleanup;
@@ -1382,7 +1400,10 @@ int wp11_keystore_detect_key_type(const uint8_t *der, size_t derlen)
         }
     }
 
-    return WP11_KEYSTORE_ERR_CBOR; /* reuse as "unrecognised DER" error */
+    /* wolfP11-wgxd: DER parse failure is not a CBOR issue; use the dedicated
+     * error code to let callers distinguish malformed CBOR from unrecognised
+     * key DER. */
+    return WP11_KEYSTORE_ERR_INVALID_DER;
 }
 
 int wp11_keystore_pem_to_der(const uint8_t *pem, size_t pemlen,

@@ -34,6 +34,8 @@
 #define WP11_KEYSTORE_ERR_MLOCK         -10   /* mlock() failed */
 #define WP11_KEYSTORE_ERR_CRYPTO        -11   /* wolfCrypt error */
 #define WP11_KEYSTORE_ERR_UNSUPPORTED   -12   /* format not yet supported */
+#define WP11_KEYSTORE_ERR_BAD_ITER      -13   /* wolfP11-wgxd: PBKDF2 iteration count out of range (not too-weak, just invalid) */
+#define WP11_KEYSTORE_ERR_INVALID_DER   -14   /* wolfP11-wgxd: DER parse failed -- distinct from CBOR format errors */
 
 /* -------------------------------------------------------------------------
  * Key type constants

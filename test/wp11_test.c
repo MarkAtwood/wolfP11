@@ -10,6 +10,13 @@
 #ifdef WOLFP11_CFG_WOLFHSM_BACKEND
 #include "test/wp11_test_backend_wolfhsm.h"
 #endif
+#include "test/wp11_test_fsdir.h"
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+#include "test/wp11_test_backend_fsdir.h"
+#endif
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+#include "test/wp11_test_backend_usb_flash.h"
+#endif
 #include <stdio.h>
 
 int main(void) {
@@ -23,6 +30,13 @@ int main(void) {
     failures += wp11_test_backend_soft();
 #ifdef WOLFP11_CFG_WOLFHSM_BACKEND
     failures += wp11_test_backend_wolfhsm();
+#endif
+    failures += wp11_test_fsdir();
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+    failures += wp11_test_backend_fsdir();
+#endif
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+    failures += wp11_test_backend_usb_flash();
 #endif
     if (failures == 0) {
         printf("All tests passed.\n");

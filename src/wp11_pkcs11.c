@@ -34,28 +34,28 @@
 #include "wolfp11/wp11_proto_piv.h"
 #endif
 
-#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
 #include "wolfp11/wp11_keystore.h"
 /* wolfCrypt key-parsing headers: used to derive the exact signature length
- * for each flash key at C_Login time so C_Sign(NULL) can return the right
+ * for each keystore key at C_Login time so C_Sign(NULL) can return the right
  * size instead of the hardcoded 512 that triggered wolfP11-3qf. */
 #include <wolfssl/wolfcrypt/rsa.h>
 #include <wolfssl/wolfcrypt/ecc.h>
 #include <wolfssl/wolfcrypt/asn.h>
-/* inotify: watch filesystem events for .p11k files on USB flash drives.
- * udisks2 mounts USB drives under /run/media on desktop Linux; we watch
- * that directory for new/removed mount points, then watch each mount for
- * .p11k files.  inotify itself is Linux-only and always available in our
+/* inotify: watch filesystem events for .p11k files.
+ * inotify itself is Linux-only and always available in our
  * target environments (embedded Linux, containers). */
 #include <sys/inotify.h>
 #include <sys/select.h>
 #include <sys/stat.h>
-#include <sys/mman.h>   /* mlock / munlock for soft-token PIN cache */
 #include <dirent.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
-#endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND || WOLFP11_CFG_FSDIR_BACKEND */
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+#include <sys/mman.h>   /* mlock / munlock for soft-token PIN cache */
+#endif
 
 #ifdef WOLFP11_CFG_WOLFHSM_BACKEND
 #include <wolfhsm/wh_client.h>
@@ -225,6 +225,13 @@ static wp11_session_t g_sessions[MAX_SESSIONS];
 
 #define MAX_KEYS 64
 
+/* wolfP11-1am6: sentinel for wp11_key_obj_t.sig_len_max meaning "not yet
+ * known; use the 512-byte conservative fallback in C_Sign size queries".
+ * A zero here is safe -- C_Sign returns 512 to callers that omit DER parsing
+ * or do not set sig_len_max after key load.  Do not set this field to 0 to
+ * mean "zero-length signature" -- that is not a valid PKCS#11 output. */
+#define WP11_SIG_LEN_UNKNOWN  0u
+
 typedef struct {
     int              in_use;
     CK_SLOT_ID       slot_id;
@@ -325,15 +332,18 @@ typedef struct {
      * Opened at C_Login, closed at C_Logout and token departure. */
     wp11_ccid_ctx_t *ccid;
 #endif
-#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
-    /* Full path to the .p11k keystore file.
-     * Flash token slots: set when the .p11k file appears on USB media.
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+    /* Full path to the .p11k keystore file for this slot.
+     * USB flash slots: set when the .p11k file appears on USB media.
+     * FSDIR slots: set when the .p11k file appears in the watched directory.
      * Soft token (slot 0): set at C_Initialize from env/config/default. */
-    char             flash_path[256];
-    /* Loaded keystore: non-NULL when a flash-proto slot is logged in.
+    char             keystore_path[256];
+    /* Loaded keystore: non-NULL when the slot is logged in.
      * Owns the mlock'd key material; freed at C_Logout / token departure.
      * Not used for soft-proto slot 0 (DER is imported into wp11_soft_key_t). */
     wp11_keystore_t *keystore;
+#endif
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
     /* Soft-token PIN cache: mlock'd during the logged-in period.
      * Used to re-encrypt the .p11k file when C_GenerateKeyPair adds a key.
      * Only meaningful for proto == WP11_PROTO_SOFT; zeroized at C_Logout. */
@@ -426,6 +436,19 @@ static int                g_flash_root_wd        = -1; /* wd for WATCH_DIR itsel
 static int                g_flash_wake_pipe[2];
 static wp11_flash_watch_t g_flash_watches[WP11_FLASH_MAX_SUBDIRS];
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+static pthread_t g_fsdir_thread;
+/* Same rationale as g_event_thread_running (wolfP11-6vz): atomic store/load. */
+static int       g_fsdir_thread_running = 0;
+static int       g_fsdir_inotify_fd     = -1;
+static int       g_fsdir_wd             = -1; /* wd for the watched directory */
+/* Self-pipe for clean shutdown: C_Finalize writes to [1]; thread wakes and exits. */
+static int       g_fsdir_wake_pipe[2];
+/* Resolved watch directory: set from WOLFP11_FSDIR_PATH env var or
+ * WOLFP11_CFG_FSDIR_PATH at C_Initialize time. */
+static char      g_fsdir_path[256];
+#endif /* WOLFP11_CFG_FSDIR_BACKEND */
 
 /* -------------------------------------------------------------------------
  * Helpers
@@ -670,44 +693,39 @@ static CK_SLOT_ID slot_remove(uint16_t vid, uint16_t pid)
 /* Forward declaration: defined after the USB backend section. */
 static void hotplug_push_event(CK_SLOT_ID slot_id, int arrived);
 
-#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
 
-/* Forward declaration: flash_slot_clear_keys is defined in the key-management
- * section below, but slot_remove_flash / slot_remove_flash_dir (defined here)
- * must call it to avoid leaving dangling key_priv pointers when a drive is
- * removed while a session is logged in. */
-static void flash_slot_clear_keys(CK_SLOT_ID slot_id);
+/* Forward declaration: ks_slot_clear_keys is defined in the key-management
+ * section below but called here by slot_remove_keystore and
+ * slot_remove_flash_dir. */
+static void ks_slot_clear_keys(CK_SLOT_ID slot_id);
 
-/* Add (or re-activate) a flash keystore slot for the given .p11k file path.
+/* Add (or re-activate) a keystore slot for the given .p11k file path.
+ * proto: WP11_PROTO_FLASH or WP11_PROTO_FSDIR.
  * Must be called under g_lock.
  * Returns the slot ID (>= 1), or (CK_SLOT_ID)-1 on failure. */
-static CK_SLOT_ID slot_add_flash(const char *path)
+static CK_SLOT_ID slot_add_keystore(const char *path, wp11_proto_t proto)
 {
     const char *name;
     CK_SLOT_ID i;
 
-    /* wolfP11-mh6: reject paths that are too long to store without truncation.
-     *
-     * flash_scan_dir builds paths in fpath[512] and skips anything >= 512
-     * chars, but flash_path[] is only 256 bytes.  Without this guard, a path
-     * of 256..511 chars would be silently stored truncated, causing a
-     * subsequent slot_remove_flash call (with the full path) to fail to find
-     * the slot via strncmp, leaving the slot stuck as token_present forever.
-     *
-     * Returning (CK_SLOT_ID)-1 causes flash_file_arrived to skip the event,
-     * which is the same outcome as the scan's own path-too-long skip. */
-    if (strlen(path) >= sizeof(g_slots[0].flash_path)) {
+    /* Reject paths that are too long to store without truncation.
+     * Scan helpers build paths in fpath[512] and skip >= 512 chars, but
+     * keystore_path[] is only 256 bytes.  Without this guard, a path of
+     * 256..511 chars would be silently stored truncated, causing
+     * slot_remove_keystore (with the full path) to fail to find the slot. */
+    if (strlen(path) >= sizeof(g_slots[0].keystore_path)) {
         return (CK_SLOT_ID)-1;
     }
 
-    /* Re-insertion: if a slot for this path already exists (token_present == 0),
-     * re-activate it rather than allocating a new slot.  This keeps the slot ID
-     * stable across remove/reinsert cycles, which is important for PKCS#11
-     * callers that cache slot IDs. */
+    /* Re-insertion: if a slot for this path and proto already exists
+     * (token_present == 0), re-activate it rather than allocating a new slot.
+     * Keeps slot IDs stable across remove/reinsert cycles. */
     for (i = 1; i < (CK_SLOT_ID)MAX_SLOTS; i++) {
         if (g_slots[i].in_use &&
-            strncmp(g_slots[i].flash_path, path,
-                    sizeof(g_slots[i].flash_path) - 1u) == 0) {
+            g_slots[i].proto == proto &&
+            strncmp(g_slots[i].keystore_path, path,
+                    sizeof(g_slots[i].keystore_path) - 1u) == 0) {
             g_slots[i].token_present = 1;
             return i;
         }
@@ -718,15 +736,14 @@ static CK_SLOT_ID slot_add_flash(const char *path)
         if (!g_slots[i].in_use) {
             g_slots[i].in_use        = 1;
             g_slots[i].token_present = 1;
-            g_slots[i].usb_vid       = 0;  /* flash slots have no USB VID/PID */
+            g_slots[i].usb_vid       = 0;
             g_slots[i].usb_pid       = 0;
-            g_slots[i].proto         = WP11_PROTO_FLASH;
-            strncpy(g_slots[i].flash_path, path,
-                    sizeof(g_slots[i].flash_path) - 1u);
-            g_slots[i].flash_path[sizeof(g_slots[i].flash_path) - 1u] = '\0';
+            g_slots[i].proto         = proto;
+            strncpy(g_slots[i].keystore_path, path,
+                    sizeof(g_slots[i].keystore_path) - 1u);
+            g_slots[i].keystore_path[sizeof(g_slots[i].keystore_path) - 1u] = '\0';
 
-            /* Derive a human-readable label from the filename (drop directory).
-             * E.g. "/run/media/user/USBKEY/mykeys.p11k" -> "mykeys.p11k". */
+            /* Derive a human-readable label from the filename (drop directory). */
             name = strrchr(path, '/');
             name = (name != NULL) ? name + 1 : path;
             strncpy(g_slots[i].label, name, sizeof(g_slots[i].label) - 1u);
@@ -738,10 +755,10 @@ static CK_SLOT_ID slot_add_flash(const char *path)
     return (CK_SLOT_ID)-1;  /* slot table full */
 }
 
-/* Mark a flash keystore slot as departed (token removed / file deleted).
+/* Mark a keystore slot as departed (token removed / file deleted).
  * Must be called under g_lock.
  * Returns the slot ID, or (CK_SLOT_ID)-1 if not found. */
-static CK_SLOT_ID slot_remove_flash(const char *path)
+static CK_SLOT_ID slot_remove_keystore(const char *path)
 {
     CK_SLOT_ID i;
     int j;
@@ -749,21 +766,18 @@ static CK_SLOT_ID slot_remove_flash(const char *path)
     for (i = 1; i < (CK_SLOT_ID)MAX_SLOTS; i++) {
         if (g_slots[i].in_use &&
             g_slots[i].token_present &&
-            strncmp(g_slots[i].flash_path, path,
-                    sizeof(g_slots[i].flash_path) - 1u) == 0) {
-            /* If the user was logged in when the drive was removed, there is a
-             * loaded keystore in g_slots[i].keystore with mlock'd pages.
-             * Must clear g_keys[] entries BEFORE freeing the keystore to avoid
-             * dangling key_priv pointers.  This is the same ordering used in
-             * C_Finalize: clear first, then free. */
-            flash_slot_clear_keys(i);
+            strncmp(g_slots[i].keystore_path, path,
+                    sizeof(g_slots[i].keystore_path) - 1u) == 0) {
+            /* Clear keys BEFORE freeing the keystore so key_priv pointers
+             * (into keystore memory) are not left dangling (wolfP11-be5). */
+            ks_slot_clear_keys(i);
             if (g_slots[i].keystore != NULL) {
                 wp11_keystore_free(g_slots[i].keystore);
                 g_slots[i].keystore = NULL;
             }
             g_slots[i].token_present = 0;
 
-            /* Invalidate open sessions -- same policy as USB hotplug departure */
+            /* Invalidate open sessions */
             for (j = 0; j < MAX_SESSIONS; j++) {
                 if (g_sessions[j].in_use && g_sessions[j].slot_id == i) {
                     memset(&g_sessions[j], 0, sizeof(g_sessions[j]));
@@ -776,6 +790,8 @@ static CK_SLOT_ID slot_remove_flash(const char *path)
     return (CK_SLOT_ID)-1;
 }
 
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+
 /* Remove all flash slots whose path starts with the given directory prefix.
  * Used when an entire mount point disappears (USB drive unplugged while
  * multiple .p11k files were loaded from it).
@@ -787,14 +803,14 @@ static void slot_remove_flash_dir(const char *dir_path, size_t dir_len)
 
     for (i = 1; i < (CK_SLOT_ID)MAX_SLOTS; i++) {
         if (!g_slots[i].in_use || !g_slots[i].token_present) continue;
+        if (g_slots[i].proto != WP11_PROTO_FLASH) continue;
         /* Check if this slot's path is under dir_path/ */
-        if (strncmp(g_slots[i].flash_path, dir_path, dir_len) != 0) continue;
-        if (g_slots[i].flash_path[dir_len] != '/' &&
-            g_slots[i].flash_path[dir_len] != '\0') continue;
+        if (strncmp(g_slots[i].keystore_path, dir_path, dir_len) != 0) continue;
+        if (g_slots[i].keystore_path[dir_len] != '/' &&
+            g_slots[i].keystore_path[dir_len] != '\0') continue;
 
-        /* Same clear-then-free ordering as slot_remove_flash and C_Finalize:
-         * remove dangling key_priv pointers before freeing the keystore. */
-        flash_slot_clear_keys(i);
+        /* Same clear-then-free ordering as slot_remove_keystore and C_Finalize. */
+        ks_slot_clear_keys(i);
         if (g_slots[i].keystore != NULL) {
             wp11_keystore_free(g_slots[i].keystore);
             g_slots[i].keystore = NULL;
@@ -808,13 +824,14 @@ static void slot_remove_flash_dir(const char *dir_path, size_t dir_len)
             }
         }
 
-        /* Push departure event for each removed slot.
-         * hotplug_push_event acquires g_hotplug_mutex internally. */
+        /* Push departure event for each removed slot. */
         hotplug_push_event(i, 0);
     }
 }
 
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND || WOLFP11_CFG_FSDIR_BACKEND */
 
 /* Push a hotplug event to the ring buffer and signal any waiters.
  * Called with g_lock held but NOT g_hotplug_mutex -- acquires it internally.
@@ -1186,9 +1203,9 @@ void wp11_test_inject_flash_event(const char *path, int arrived)
     if (wc_LockMutex(&g_lock) != 0) return;
 
     if (arrived) {
-        slot_id = slot_add_flash(path);
+        slot_id = slot_add_keystore(path, WP11_PROTO_FLASH);
     } else {
-        slot_id = slot_remove_flash(path);
+        slot_id = slot_remove_keystore(path);
     }
 
     wc_UnLockMutex(&g_lock);
@@ -1211,21 +1228,13 @@ unsigned int wp11_test_hotplug_dropped(void)
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
 #endif /* WOLFP11_CFG_TEST */
 
-#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
 
 /* -------------------------------------------------------------------------
- * Flash slot key management
+ * Shared keystore backend utilities
  *
- * When C_Login succeeds for a flash slot, wp11_keystore_load() produces a
- * wp11_keystore_t containing one or more wp11_key_entry_t records.  These
- * are exposed as g_keys[] entries so C_FindObjects / C_Sign / C_Verify /
- * C_Decrypt can reach them through the standard PKCS#11 object model.
- *
- * Key ownership: g_keys[].key_priv for flash keys is a POINTER INTO the
- * keystore's internal entries array -- not a separately alloc'd object.
- * backend_ops->free_key_priv is NULL for flash keys, which signals to
- * C_Finalize and C_DestroyObject that the keystore owns the memory and
- * no per-key free should be performed (wolfP11-be5).
+ * These functions are used by both the USB flash and FSDIR backends.
+ * They are compiled whenever either backend is enabled.
  * ---------------------------------------------------------------------- */
 
 /* wolfP11-3qf: compute the maximum signature output length for a key entry
@@ -1245,7 +1254,7 @@ unsigned int wp11_test_hotplug_dropped(void)
  * Parsing is performed with temporary stack-allocated key objects that are
  * zeroed and freed before this function returns.  Key material in entry->der_bytes
  * is mlock()'d by the keystore layer and remains untouched. */
-static CK_ULONG flash_key_sig_len_max(const wp11_key_entry_t *entry)
+static CK_ULONG ks_key_sig_len_max(const wp11_key_entry_t *entry)
 {
     word32 idx = 0;
     int key_size;
@@ -1280,7 +1289,33 @@ static CK_ULONG flash_key_sig_len_max(const wp11_key_entry_t *entry)
     }
 }
 
+/* Check whether a filename has the ".p11k" extension.
+ * Shared between the USB flash and FSDIR backends. */
+static int has_p11k_extension(const char *name)
+{
+    size_t n = strlen(name);
+    /* Minimum valid name: "a.p11k" = 6 chars */
+    return n > 5u && strcmp(name + n - 5u, ".p11k") == 0;
+}
+
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+
+/* -------------------------------------------------------------------------
+ * Shared keystore slot key management (USB flash + FSDIR backends)
+ *
+ * When C_Login succeeds for a keystore slot, wp11_keystore_load() produces a
+ * wp11_keystore_t containing one or more wp11_key_entry_t records.  These
+ * are exposed as g_keys[] entries so C_FindObjects / C_Sign / C_Verify /
+ * C_Decrypt can reach them through the standard PKCS#11 object model.
+ *
+ * Key ownership: g_keys[].key_priv is a POINTER INTO the keystore's internal
+ * entries array -- not a separately alloc'd object.  backend_ops->free_key_priv
+ * is NULL for keystore backends, signalling to C_Finalize and C_DestroyObject
+ * that the keystore owns the memory (wolfP11-be5).
+ * ---------------------------------------------------------------------- */
+
 /* Populate g_keys[] with the private keys from a freshly loaded keystore.
+ * ops: &wp11_backend_flash_ops or &wp11_backend_fsdir_ops.
  * Must be called under g_lock immediately after wp11_keystore_load.
  *
  * Returns the number of keys that could NOT be added because g_keys[] is
@@ -1289,8 +1324,9 @@ static CK_ULONG flash_key_sig_len_max(const wp11_key_entry_t *entry)
  * Caller (C_Login) must check the return value and return CKR_DEVICE_MEMORY
  * if > 0, rather than silently presenting a partial key set to the caller.
  * A PKCS#11 application has no other way to detect a partial load. */
-static int flash_slot_populate_keys(CK_SLOT_ID slot_id,
-                                    wp11_keystore_t *ks)
+static int ks_slot_populate_keys(CK_SLOT_ID slot_id,
+                                  wp11_keystore_t *ks,
+                                  const wp11_backend_ops_t *ops)
 {
     size_t nkeys;
     size_t ki;
@@ -1303,11 +1339,9 @@ static int flash_slot_populate_keys(CK_SLOT_ID slot_id,
         entry = wp11_keystore_get(ks, ki);
         if (entry == NULL) continue;
 
-        /* Find a free slot in g_keys[].  MAX_KEYS = 64 is a hard limit:
-         * shared across all slots (soft token + all flash slots combined).
-         * If the table is full, count the remaining keys as dropped rather
-         * than silently omitting them.  C_Login will return CKR_DEVICE_MEMORY
-         * so the caller knows the login was incomplete. */
+        /* Find a free slot in g_keys[].  MAX_KEYS is a hard limit shared
+         * across all slots.  Count remaining keys as dropped rather than
+         * silently omitting them. */
         for (gi = 0; gi < MAX_KEYS; gi++) {
             if (!g_keys[gi].in_use) break;
         }
@@ -1316,51 +1350,50 @@ static int flash_slot_populate_keys(CK_SLOT_ID slot_id,
             continue;   /* count all remaining, don't break early */
         }
 
-        g_keys[gi].in_use       = 1;
-        g_keys[gi].slot_id      = slot_id;
-        /* PKCS#11 private key class */
-        g_keys[gi].obj_class    = CKO_PRIVATE_KEY;
-        g_keys[gi].key_type     = (entry->key_type == WP11_KEY_TYPE_EC)
-                                      ? CKK_EC : CKK_RSA;
-        /* wolfP11-3qf: compute the exact max signature length once here so
-         * that C_Sign(pSignature=NULL) can return the correct size per mechanism
-         * and key type.  Parsing at login time is a one-time cost. */
-        g_keys[gi].sig_len_max  = flash_key_sig_len_max(entry);
+        g_keys[gi].in_use      = 1;
+        g_keys[gi].slot_id     = slot_id;
+        g_keys[gi].obj_class   = CKO_PRIVATE_KEY;
+        g_keys[gi].key_type    = (entry->key_type == WP11_KEY_TYPE_EC)
+                                     ? CKK_EC : CKK_RSA;
+        /* wolfP11-3qf: compute exact max signature length once at login time. */
+        g_keys[gi].sig_len_max = ks_key_sig_len_max(entry);
         /* key_priv points into the keystore entry; keystore owns the memory.
-         * free_key_priv == NULL signals that no per-key free should be called
-         * (wolfP11-be5: ownership semantics encoded in the ops table). */
-        g_keys[gi].key_priv     = (void *)entry;
-        g_keys[gi].backend_ops  = &wp11_backend_flash_ops;
-        g_keys[gi].is_private   = CK_TRUE;
-        g_keys[gi].is_token     = CK_TRUE;
-        strncpy(g_keys[gi].label, entry->label, sizeof(g_keys[gi].label) - 1u);
+         * ops->free_key_priv == NULL encodes this (wolfP11-be5). */
+        g_keys[gi].key_priv    = (void *)entry;
+        g_keys[gi].backend_ops = ops;
+        g_keys[gi].is_private  = CK_TRUE;
+        g_keys[gi].is_token    = CK_TRUE;
+        memcpy(g_keys[gi].label, entry->label, sizeof(g_keys[gi].label) - 1u);
         g_keys[gi].label[sizeof(g_keys[gi].label) - 1u] = '\0';
     }
     return dropped;
 }
 
-/* Remove all g_keys[] entries belonging to slot_id.
- * Flash key_priv pointers are NOT freed here -- wp11_keystore_free handles
- * that.  Must be called under g_lock BEFORE wp11_keystore_free. */
-static void flash_slot_clear_keys(CK_SLOT_ID slot_id)
+/* Remove all keystore g_keys[] entries belonging to slot_id.
+ * key_priv pointers are NOT freed here -- wp11_keystore_free handles bulk
+ * cleanup.  Must be called under g_lock BEFORE wp11_keystore_free.
+ * Identifies keystore keys by ops->free_key_priv == NULL (wolfP11-be5). */
+static void ks_slot_clear_keys(CK_SLOT_ID slot_id)
 {
     int gi;
     for (gi = 0; gi < MAX_KEYS; gi++) {
         if (g_keys[gi].in_use &&
             g_keys[gi].slot_id == slot_id &&
-            g_keys[gi].backend_ops == &wp11_backend_flash_ops) {
-            /* Do NOT free key_priv -- it is owned by the keystore.
-             * free_key_priv == NULL for flash ops confirms this.
-             * Caller must call wp11_keystore_free AFTER this function. */
+            g_keys[gi].backend_ops != NULL &&
+            g_keys[gi].backend_ops->free_key_priv == NULL) {
             memset(&g_keys[gi], 0, sizeof(g_keys[gi]));
         }
     }
 }
 
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND || WOLFP11_CFG_FSDIR_BACKEND */
+
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+
 /* -------------------------------------------------------------------------
  * wolfP11-y4w: Soft-token persistent keystore helpers
  *
- * Parallel to flash_slot_populate_keys / flash_slot_clear_keys, but for
+ * Parallel to ks_slot_populate_keys / ks_slot_clear_keys, but for
  * the soft token (slot 0) with proto == WP11_PROTO_SOFT.
  *
  * Key difference from flash: DER bytes are imported into wolfCrypt key
@@ -1400,14 +1433,13 @@ static int soft_slot_populate_keys(CK_SLOT_ID slot_id, wp11_keystore_t *ks)
         g_keys[gi].obj_class   = CKO_PRIVATE_KEY;
         g_keys[gi].key_type    = (entry->key_type == WP11_KEY_TYPE_EC)
                                      ? CKK_EC : CKK_RSA;
-        g_keys[gi].sig_len_max = flash_key_sig_len_max(entry);
+        g_keys[gi].sig_len_max = ks_key_sig_len_max(entry);
         g_keys[gi].key_priv    = sk;
         g_keys[gi].backend_ops = &wp11_backend_soft_ops;
         g_keys[gi].is_token    = CK_TRUE;
         memcpy(g_keys[gi].id, entry->id, 16u);
         g_keys[gi].id_len = 16u;
-        strncpy(g_keys[gi].label, entry->label,
-                sizeof(g_keys[gi].label) - 1u);
+        memcpy(g_keys[gi].label, entry->label, sizeof(g_keys[gi].label) - 1u);
         g_keys[gi].label[sizeof(g_keys[gi].label) - 1u] = '\0';
     }
     return dropped;
@@ -1448,16 +1480,16 @@ static int soft_slot_save(CK_SLOT_ID slot_id)
     int               ret = -1;
 
     if (g_slots[slot_id].soft_pin_len == 0) return -1;
-    if (g_slots[slot_id].flash_path[0] == '\0') return -1;
+    if (g_slots[slot_id].keystore_path[0] == '\0') return -1;
 
     /* Ensure parent directory exists (ignore EEXIST) */
     {
-        const char *p = strrchr(g_slots[slot_id].flash_path, '/');
-        if (p != NULL && p != g_slots[slot_id].flash_path) {
+        const char *p = strrchr(g_slots[slot_id].keystore_path, '/');
+        if (p != NULL && p != g_slots[slot_id].keystore_path) {
             char dir[256];
-            size_t dlen = (size_t)(p - g_slots[slot_id].flash_path);
+            size_t dlen = (size_t)(p - g_slots[slot_id].keystore_path);
             if (dlen < sizeof(dir)) {
-                memcpy(dir, g_slots[slot_id].flash_path, dlen);
+                memcpy(dir, g_slots[slot_id].keystore_path, dlen);
                 dir[dlen] = '\0';
                 mkdir(dir, 0700); /* EEXIST is not an error */
             }
@@ -1474,7 +1506,7 @@ static int soft_slot_save(CK_SLOT_ID slot_id)
     }
 
     if (cap == 0) {
-        ret = wp11_keystore_create(g_slots[slot_id].flash_path,
+        ret = wp11_keystore_create(g_slots[slot_id].keystore_path,
                                     g_slots[slot_id].soft_pin,
                                     g_slots[slot_id].soft_pin_len,
                                     NULL, 0u);
@@ -1512,7 +1544,7 @@ static int soft_slot_save(CK_SLOT_ID slot_id)
         n++;
     }
 
-    ret = wp11_keystore_create(g_slots[slot_id].flash_path,
+    ret = wp11_keystore_create(g_slots[slot_id].keystore_path,
                                 g_slots[slot_id].soft_pin,
                                 g_slots[slot_id].soft_pin_len,
                                 entries, n);
@@ -1542,14 +1574,6 @@ cleanup:
  * acquire g_lock; when they push events, they call hotplug_push_event
  * which acquires g_hotplug_mutex internally.
  * ---------------------------------------------------------------------- */
-
-/* Check whether a filename has the ".p11k" extension. */
-static int has_p11k_extension(const char *name)
-{
-    size_t n = strlen(name);
-    /* Minimum valid name: "a.p11k" = 6 chars */
-    return n > 5u && strcmp(name + n - 5u, ".p11k") == 0;
-}
 
 /* Find a free slot in g_flash_watches[].  Returns index, or -1 if full. */
 static int flash_watch_alloc(void)
@@ -1628,7 +1652,7 @@ static void flash_file_arrived(const char *fpath)
     CK_SLOT_ID slot_id;
 
     if (wc_LockMutex(&g_lock) != 0) return;
-    slot_id = slot_add_flash(fpath);
+    slot_id = slot_add_keystore(fpath, WP11_PROTO_FLASH);
     wc_UnLockMutex(&g_lock);
 
     if (slot_id != (CK_SLOT_ID)-1) {
@@ -1642,7 +1666,7 @@ static void flash_file_departed(const char *fpath)
     CK_SLOT_ID slot_id;
 
     if (wc_LockMutex(&g_lock) != 0) return;
-    slot_id = slot_remove_flash(fpath);
+    slot_id = slot_remove_keystore(fpath);
     wc_UnLockMutex(&g_lock);
 
     if (slot_id != (CK_SLOT_ID)-1) {
@@ -1667,8 +1691,8 @@ static void flash_scan_dir(const char *dir_path)
 
         /* wolfP11-mh6: this guard is for the LOCAL fpath[512] stack buffer
          * only -- it prevents a buffer overflow in this function.  A separate
-         * guard in slot_add_flash rejects paths that are too long for the
-         * slot's flash_path[256] storage field (>= 256 chars). */
+         * guard in slot_add_keystore rejects paths that are too long for the
+         * slot's keystore_path[256] storage field (>= 256 chars). */
         if (snprintf(fpath, sizeof(fpath), "%s/%s",
                      dir_path, de->d_name) >= (int)sizeof(fpath)) {
             continue; /* path too long for local buffer; skip */
@@ -1889,6 +1913,166 @@ static void *flash_thread_fn(void *arg)
 
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
 
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+
+/* A .p11k file was found (or created) in the watched directory. */
+static void fsdir_file_arrived(const char *fpath)
+{
+    CK_SLOT_ID slot_id;
+
+    if (wc_LockMutex(&g_lock) != 0) return;
+    slot_id = slot_add_keystore(fpath, WP11_PROTO_FSDIR);
+    wc_UnLockMutex(&g_lock);
+
+    if (slot_id != (CK_SLOT_ID)-1) {
+        hotplug_push_event(slot_id, 1);
+    }
+}
+
+/* A .p11k file was deleted from the watched directory. */
+static void fsdir_file_departed(const char *fpath)
+{
+    CK_SLOT_ID slot_id;
+
+    if (wc_LockMutex(&g_lock) != 0) return;
+    slot_id = slot_remove_keystore(fpath);
+    wc_UnLockMutex(&g_lock);
+
+    if (slot_id != (CK_SLOT_ID)-1) {
+        hotplug_push_event(slot_id, 0);
+    }
+}
+
+/* Scan dir_path for .p11k files and call fsdir_file_arrived for each one. */
+static void fsdir_scan_dir(const char *dir_path)
+{
+    DIR *dp;
+    struct dirent *de;
+    struct stat st;
+    char fpath[512];
+
+    dp = opendir(dir_path);
+    if (dp == NULL) return;
+
+    while ((de = readdir(dp)) != NULL) {
+        if (!has_p11k_extension(de->d_name)) continue;
+
+        if (snprintf(fpath, sizeof(fpath), "%s/%s",
+                     dir_path, de->d_name) >= (int)sizeof(fpath)) {
+            continue; /* path too long for local buffer */
+        }
+
+        /* Use stat() -- avoid symlinks (TOCTOU risk) and d_type portability. */
+        if (stat(fpath, &st) == 0 && S_ISREG(st.st_mode)) {
+            fsdir_file_arrived(fpath);
+        }
+    }
+
+    closedir(dp);
+}
+
+/* -------------------------------------------------------------------------
+ * fsdir_thread_fn -- inotify event loop for the filesystem directory backend
+ *
+ * Watches g_fsdir_path (a single flat directory) for .p11k file
+ * create/delete events.  Unlike the USB flash thread, no subdirectory
+ * tracking is needed: the path is a configured persistent location, not
+ * an auto-mounted USB hierarchy.
+ *
+ * Clean shutdown: C_Finalize writes a byte to g_fsdir_wake_pipe[1]; the
+ * thread wakes from select() and exits.
+ * ---------------------------------------------------------------------- */
+static void *fsdir_thread_fn(void *arg)
+{
+    char     buf[4096];
+    int      maxfd;
+    int      n;
+    fd_set   rfds;
+    char     fpath[512];
+    struct inotify_event *ev;
+    char    *p;
+
+    (void)arg;
+
+    /* Nothing to watch if path is empty */
+    if (g_fsdir_path[0] == '\0') return NULL;
+
+    g_fsdir_inotify_fd = inotify_init();
+    if (g_fsdir_inotify_fd < 0) return NULL;
+
+    /* Watch the configured directory for .p11k file arrivals and departures.
+     * IN_CLOSE_WRITE catches files written in-place; IN_MOVED_TO catches
+     * atomic replacements (write-to-temp then rename). */
+    g_fsdir_wd = inotify_add_watch(g_fsdir_inotify_fd, g_fsdir_path,
+                                    (uint32_t)(IN_CREATE | IN_DELETE |
+                                               IN_MOVED_TO | IN_MOVED_FROM |
+                                               IN_CLOSE_WRITE));
+    if (g_fsdir_wd < 0) {
+        /* Directory does not exist or is not accessible; exit gracefully.
+         * Soft token still works. */
+        close(g_fsdir_inotify_fd);
+        g_fsdir_inotify_fd = -1;
+        return NULL;
+    }
+
+    /* Initial scan: pick up any .p11k files already present. */
+    fsdir_scan_dir(g_fsdir_path);
+
+    maxfd = (g_fsdir_inotify_fd > g_fsdir_wake_pipe[0])
+            ? g_fsdir_inotify_fd : g_fsdir_wake_pipe[0];
+    maxfd++;
+
+    while (__atomic_load_n(&g_fsdir_thread_running, __ATOMIC_ACQUIRE)) {
+        FD_ZERO(&rfds);
+        FD_SET(g_fsdir_inotify_fd, &rfds);
+        FD_SET(g_fsdir_wake_pipe[0], &rfds);
+
+        if (select(maxfd, &rfds, NULL, NULL, NULL) < 0) {
+            break; /* signal or error; exit cleanly */
+        }
+
+        if (FD_ISSET(g_fsdir_wake_pipe[0], &rfds)) {
+            break; /* shutdown requested by C_Finalize */
+        }
+
+        if (!FD_ISSET(g_fsdir_inotify_fd, &rfds)) {
+            continue;
+        }
+
+        n = (int)read(g_fsdir_inotify_fd, buf, sizeof(buf));
+        if (n <= 0) break;
+
+        p = buf;
+        while (p + (int)sizeof(struct inotify_event) <= buf + n) {
+            ev = (struct inotify_event *)(void *)p;
+            p += (int)sizeof(struct inotify_event) + (int)ev->len;
+
+            if (ev->len == 0) continue;
+            if (!has_p11k_extension(ev->name)) continue;
+
+            if (snprintf(fpath, sizeof(fpath), "%s/%s",
+                         g_fsdir_path, ev->name) >= (int)sizeof(fpath)) {
+                continue;
+            }
+
+            if (ev->mask & (uint32_t)(IN_CREATE | IN_MOVED_TO |
+                                      IN_CLOSE_WRITE)) {
+                fsdir_file_arrived(fpath);
+            } else if (ev->mask & (uint32_t)(IN_DELETE | IN_MOVED_FROM)) {
+                fsdir_file_departed(fpath);
+            }
+        }
+    }
+
+    close(g_fsdir_inotify_fd);
+    g_fsdir_inotify_fd = -1;
+    return NULL;
+}
+
+#endif /* WOLFP11_CFG_FSDIR_BACKEND */
+
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND || WOLFP11_CFG_FSDIR_BACKEND */
+
 /* -------------------------------------------------------------------------
  * C_Initialize / C_Finalize
  * ---------------------------------------------------------------------- */
@@ -1953,14 +2137,14 @@ CK_RV C_Initialize(CK_VOID_PTR pInitArgs)
         if (sp == NULL) {
             const char *home = getenv("HOME");
             if (home != NULL) {
-                snprintf(g_slots[0].flash_path,
-                         sizeof(g_slots[0].flash_path),
+                snprintf(g_slots[0].keystore_path,
+                         sizeof(g_slots[0].keystore_path),
                          "%s/.wolfp11/soft.p11k", home);
             }
         } else {
-            strncpy(g_slots[0].flash_path, sp,
-                    sizeof(g_slots[0].flash_path) - 1u);
-            g_slots[0].flash_path[sizeof(g_slots[0].flash_path) - 1u] = '\0';
+            strncpy(g_slots[0].keystore_path, sp,
+                    sizeof(g_slots[0].keystore_path) - 1u);
+            g_slots[0].keystore_path[sizeof(g_slots[0].keystore_path) - 1u] = '\0';
         }
     }
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
@@ -2085,6 +2269,37 @@ CK_RV C_Initialize(CK_VOID_PTR pInitArgs)
     }
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
 
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+    /* Resolve the FSDIR watch path.
+     * Priority: WOLFP11_FSDIR_PATH env var
+     *         > WOLFP11_CFG_FSDIR_PATH compile-time default */
+    {
+        const char *fp = getenv("WOLFP11_FSDIR_PATH");
+        if (fp == NULL) {
+            fp = WOLFP11_CFG_FSDIR_PATH;
+        }
+        if (fp != NULL) {
+            strncpy(g_fsdir_path, fp, sizeof(g_fsdir_path) - 1u);
+            g_fsdir_path[sizeof(g_fsdir_path) - 1u] = '\0';
+        } else {
+            g_fsdir_path[0] = '\0';
+        }
+    }
+    /* Start the FSDIR inotify thread (same pipe+thread pattern as flash). */
+    g_fsdir_wake_pipe[0] = -1;
+    g_fsdir_wake_pipe[1] = -1;
+    if (g_fsdir_path[0] != '\0' && pipe(g_fsdir_wake_pipe) == 0) {
+        __atomic_store_n(&g_fsdir_thread_running, 1, __ATOMIC_RELAXED);
+        if (pthread_create(&g_fsdir_thread, NULL, fsdir_thread_fn, NULL) != 0) {
+            __atomic_store_n(&g_fsdir_thread_running, 0, __ATOMIC_RELAXED);
+            close(g_fsdir_wake_pipe[0]);
+            close(g_fsdir_wake_pipe[1]);
+            g_fsdir_wake_pipe[0] = -1;
+            g_fsdir_wake_pipe[1] = -1;
+        }
+    }
+#endif /* WOLFP11_CFG_FSDIR_BACKEND */
+
     g_initialized = 1;
 
 cleanup:
@@ -2154,6 +2369,23 @@ CK_RV C_Finalize(CK_VOID_PTR pReserved)
     }
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
 
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+    {
+        /* Free any loaded FSDIR keystores.  Same ordering constraint as flash:
+         * AFTER clearing g_keys[] (dangling key_priv pointers removed), BEFORE
+         * memset(g_slots) (valid keystore pointers still needed). */
+        int si;
+        for (si = 1; si < MAX_SLOTS; si++) {
+            if (g_slots[si].in_use &&
+                g_slots[si].proto == WP11_PROTO_FSDIR &&
+                g_slots[si].keystore != NULL) {
+                wp11_keystore_free(g_slots[si].keystore);
+                g_slots[si].keystore = NULL;
+            }
+        }
+    }
+#endif /* WOLFP11_CFG_FSDIR_BACKEND */
+
 #ifdef WOLFP11_CFG_WOLFHSM_BACKEND
     {
         /* Disconnect any active wolfHSM client connections.  Must happen AFTER
@@ -2219,9 +2451,10 @@ cleanup:
         /* RELEASE store: visible to the thread before the pipe write wakes it */
         __atomic_store_n(&g_flash_thread_running, 0, __ATOMIC_RELEASE);
         if (g_flash_wake_pipe[1] >= 0) {
-            /* A single byte is enough to wake select(). Ignore EINTR/EAGAIN:
-             * the pipe has kernel buffer space and the thread will drain it. */
-            (void)write(g_flash_wake_pipe[1], "\0", 1);
+            /* A single byte is enough to wake select(). EINTR/EAGAIN are
+             * benign: the pipe has kernel buffer space and the thread will
+             * drain it on the next wake cycle. */
+            if (write(g_flash_wake_pipe[1], "\0", 1) < 0) {}
         }
         pthread_join(g_flash_thread, NULL);
     }
@@ -2235,6 +2468,30 @@ cleanup:
         g_flash_wake_pipe[1] = -1;
     }
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+    /* Stop the FSDIR inotify thread.  Same ordering rationale as the flash
+     * thread: fsdir_file_arrived/departed acquire g_lock, so no g_lock hold
+     * during the join. */
+    if (__atomic_load_n(&g_fsdir_thread_running, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&g_fsdir_thread_running, 0, __ATOMIC_RELEASE);
+        if (g_fsdir_wake_pipe[1] >= 0) {
+            /* Ignore return: thread wakes on the running flag; the write
+             * is a best-effort wakeup only (wolfP11-6ci). */
+            ssize_t wr_ = write(g_fsdir_wake_pipe[1], "\0", 1);
+            (void)wr_;
+        }
+        pthread_join(g_fsdir_thread, NULL);
+    }
+    if (g_fsdir_wake_pipe[0] >= 0) {
+        close(g_fsdir_wake_pipe[0]);
+        g_fsdir_wake_pipe[0] = -1;
+    }
+    if (g_fsdir_wake_pipe[1] >= 0) {
+        close(g_fsdir_wake_pipe[1]);
+        g_fsdir_wake_pipe[1] = -1;
+    }
+#endif /* WOLFP11_CFG_FSDIR_BACKEND */
 
     /* All background threads have joined.  No thread can call wc_LockMutex
      * any more, so it is now safe to destroy g_lock. */
@@ -2284,11 +2541,44 @@ cleanup:
  * C_GetSlotList
  * ---------------------------------------------------------------------- */
 
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+/* Comparator for qsort in C_GetSlotList.
+ *
+ * Ordering:
+ *   Slot 0 (soft / USB token) first.
+ *   Keystore slots (keystore_path set): alphabetical by path.
+ *   Non-keystore slots (USB hardware): by slot ID.
+ *   Non-keystore slots sort before keystore slots.
+ *
+ * This makes C_GetSlotList output deterministic even if .p11k files are
+ * discovered by inotify or readdir in non-alphabetical filesystem order. */
+static int slot_id_cmp(const void *a, const void *b)
+{
+    CK_SLOT_ID sa = *(const CK_SLOT_ID *)a;
+    CK_SLOT_ID sb = *(const CK_SLOT_ID *)b;
+    int a_ks, b_ks;
+
+    if (sa == 0) return -1;
+    if (sb == 0) return  1;
+
+    a_ks = (g_slots[sa].keystore_path[0] != '\0');
+    b_ks = (g_slots[sb].keystore_path[0] != '\0');
+
+    if (a_ks && b_ks)
+        return strncmp(g_slots[sa].keystore_path, g_slots[sb].keystore_path,
+                       sizeof(g_slots[0].keystore_path) - 1u);
+    if (a_ks) return  1;   /* keystore slots after non-keystore */
+    if (b_ks) return -1;
+    return (sa < sb) ? -1 : (sa > sb) ? 1 : 0;
+}
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND || WOLFP11_CFG_FSDIR_BACKEND */
+
 CK_RV C_GetSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
                      CK_ULONG_PTR pulCount)
 {
-    CK_RV    rv  = CKR_OK;
-    CK_ULONG cnt = 0;
+    CK_RV      rv  = CKR_OK;
+    CK_ULONG   cnt = 0;
+    CK_SLOT_ID ids[MAX_SLOTS];
     int i;
 
     WP11_LOCK(CKR_CRYPTOKI_NOT_INITIALIZED);
@@ -2296,11 +2586,11 @@ CK_RV C_GetSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
     if (!g_initialized) { rv = CKR_CRYPTOKI_NOT_INITIALIZED; goto cleanup; }
     if (pulCount == NULL_PTR) { rv = CKR_ARGUMENTS_BAD; goto cleanup; }
 
-    /* Count qualifying slots */
+    /* Collect qualifying slots */
     for (i = 0; i < MAX_SLOTS; i++) {
         if (!g_slots[i].in_use) continue;
         if (tokenPresent && !g_slots[i].token_present) continue;
-        cnt++;
+        ids[cnt++] = (CK_SLOT_ID)i;
     }
 
     if (pSlotList == NULL_PTR) {
@@ -2314,11 +2604,13 @@ CK_RV C_GetSlotList(CK_BBOOL tokenPresent, CK_SLOT_ID_PTR pSlotList,
         goto cleanup;
     }
 
-    cnt = 0;
-    for (i = 0; i < MAX_SLOTS; i++) {
-        if (!g_slots[i].in_use) continue;
-        if (tokenPresent && !g_slots[i].token_present) continue;
-        pSlotList[cnt++] = (CK_SLOT_ID)i;
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+    /* Sort: slot 0 first, keystore slots alphabetically, others by ID. */
+    qsort(ids, (size_t)cnt, sizeof(ids[0]), slot_id_cmp);
+#endif
+
+    for (i = 0; i < (int)cnt; i++) {
+        pSlotList[i] = ids[i];
     }
     *pulCount = cnt;
 
@@ -2667,7 +2959,7 @@ CK_RV C_InitPIN(CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pPin,
     /* Only the soft persistent token (WP11_PROTO_SOFT + flash_path) is
      * supported.  All other backends return CKR_FUNCTION_NOT_SUPPORTED. */
     if (g_slots[s->slot_id].proto == WP11_PROTO_SOFT &&
-        g_slots[s->slot_id].flash_path[0] != '\0') {
+        g_slots[s->slot_id].keystore_path[0] != '\0') {
 
         /* wolfP11 extension: C_InitPIN works without SO login ONLY when the
          * token is uninitialized (no keystore file exists).  An initialized
@@ -2676,7 +2968,7 @@ CK_RV C_InitPIN(CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pPin,
          * Use wp11_keystore_load with a dummy ks_out to probe whether the
          * keystore file exists and is valid. */
         wp11_keystore_t *probe = NULL;
-        kret = wp11_keystore_load(g_slots[s->slot_id].flash_path,
+        kret = wp11_keystore_load(g_slots[s->slot_id].keystore_path,
                                    (const uint8_t *)pPin, (size_t)ulPinLen,
                                    &probe);
         if (probe != NULL) wp11_keystore_free(probe);
@@ -2696,7 +2988,7 @@ CK_RV C_InitPIN(CK_SESSION_HANDLE hSession, CK_UTF8CHAR_PTR pPin,
             rv = CKR_PIN_LEN_RANGE;
             goto cleanup;
         }
-        kret = wp11_keystore_create(g_slots[s->slot_id].flash_path,
+        kret = wp11_keystore_create(g_slots[s->slot_id].keystore_path,
                                      (const uint8_t *)pPin, (size_t)ulPinLen,
                                      NULL, 0);
         if (kret != WP11_KEYSTORE_OK) {
@@ -3247,7 +3539,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
     wp11_session_t *s;
     int i;
     int slot_id_for_count = -1; /* set once we have a valid session+slot */
-#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
     wp11_keystore_t *ks;
     int kret;
 #endif
@@ -3286,24 +3578,26 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
                 goto cleanup;
             }
         }
-        /* SO login: verify PIN for backends that require it */
+        /* SO login: verify PIN when a persistent keystore exists.
+         * If the keystore file is absent, the token is uninitialized and SO
+         * may log in without a PIN (e.g. to call C_InitPIN for first setup). */
 #ifdef WOLFP11_CFG_USB_FLASH_BACKEND
         if (g_slots[s->slot_id].proto == WP11_PROTO_SOFT &&
-            g_slots[s->slot_id].flash_path[0] != '\0') {
-            wp11_keystore_t *so_ks = NULL;
-            kret = wp11_keystore_load(g_slots[s->slot_id].flash_path,
-                                       (const uint8_t *)pPin, (size_t)ulPinLen,
-                                       &so_ks);
-            if (so_ks != NULL) { wp11_keystore_free(so_ks); so_ks = NULL; }
-            if (kret == WP11_KEYSTORE_ERR_IO) {
-                rv = CKR_USER_PIN_NOT_INITIALIZED;
-                goto cleanup;
-            } else if (kret == WP11_KEYSTORE_ERR_BAD_PIN) {
-                rv = CKR_PIN_INCORRECT;
-                goto cleanup;
-            } else if (kret != WP11_KEYSTORE_OK) {
-                rv = CKR_FUNCTION_FAILED;
-                goto cleanup;
+            g_slots[s->slot_id].keystore_path[0] != '\0') {
+            struct stat so_st_;
+            if (stat(g_slots[s->slot_id].keystore_path, &so_st_) == 0) {
+                wp11_keystore_t *so_ks = NULL;
+                kret = wp11_keystore_load(g_slots[s->slot_id].keystore_path,
+                                           (const uint8_t *)pPin,
+                                           (size_t)ulPinLen, &so_ks);
+                if (so_ks != NULL) { wp11_keystore_free(so_ks); so_ks = NULL; }
+                if (kret == WP11_KEYSTORE_ERR_BAD_PIN) {
+                    rv = CKR_PIN_INCORRECT;
+                    goto cleanup;
+                } else if (kret != WP11_KEYSTORE_OK) {
+                    rv = CKR_FUNCTION_FAILED;
+                    goto cleanup;
+                }
             }
         }
 #endif
@@ -3463,7 +3757,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
 #endif /* WOLFP11_CFG_WOLFHSM_BACKEND */
 
 #ifdef WOLFP11_CFG_USB_FLASH_BACKEND
-        if (g_slots[s->slot_id].flash_path[0] != '\0') {
+        if (g_slots[s->slot_id].keystore_path[0] != '\0') {
             if (pPin == NULL_PTR || ulPinLen == 0) {
                 rv = CKR_ARGUMENTS_BAD;
                 goto cleanup;
@@ -3477,7 +3771,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
                 /* Soft persistent token: load if file exists; first use is OK.
                  * A missing file returns WP11_KEYSTORE_ERR_IO -- that means the
                  * token is new and has no keys yet, which is not an error. */
-                kret = wp11_keystore_load(g_slots[s->slot_id].flash_path,
+                kret = wp11_keystore_load(g_slots[s->slot_id].keystore_path,
                                            (const uint8_t *)pPin,
                                            (size_t)ulPinLen, &ks);
                 if (kret == WP11_KEYSTORE_ERR_IO) {
@@ -3517,7 +3811,7 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
             } else {
                 /* Flash hardware token: authenticate and load all keys.
                  * A wrong PIN causes AES-GCM auth to fail -> ERR_BAD_PIN. */
-                kret = wp11_keystore_load(g_slots[s->slot_id].flash_path,
+                kret = wp11_keystore_load(g_slots[s->slot_id].keystore_path,
                                            (const uint8_t *)pPin,
                                            (size_t)ulPinLen, &ks);
                 if (kret != WP11_KEYSTORE_OK) {
@@ -3530,8 +3824,8 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
                  * of keys that could not be added.  Return CKR_DEVICE_MEMORY
                  * rather than silently presenting a partial key set. */
                 g_slots[s->slot_id].keystore = ks;
-                if (flash_slot_populate_keys(s->slot_id, ks) > 0) {
-                    flash_slot_clear_keys(s->slot_id);
+                if (ks_slot_populate_keys(s->slot_id, ks, &wp11_backend_flash_ops) > 0) {
+                    ks_slot_clear_keys(s->slot_id);
                     wp11_keystore_free(g_slots[s->slot_id].keystore);
                     g_slots[s->slot_id].keystore = NULL;
                     rv = CKR_DEVICE_MEMORY;
@@ -3544,6 +3838,33 @@ CK_RV C_Login(CK_SESSION_HANDLE hSession, CK_USER_TYPE userType,
 #else
         (void)pPin; (void)ulPinLen;
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+        if (g_slots[s->slot_id].proto == WP11_PROTO_FSDIR) {
+            /* FSDIR slot: authenticate with the .p11k file's PIN. */
+            if (pPin == NULL_PTR || ulPinLen == 0) {
+                rv = CKR_ARGUMENTS_BAD;
+                goto cleanup;
+            }
+            ks = NULL;
+            kret = wp11_keystore_load(g_slots[s->slot_id].keystore_path,
+                                       (const uint8_t *)pPin,
+                                       (size_t)ulPinLen, &ks);
+            if (kret != WP11_KEYSTORE_OK) {
+                rv = (kret == WP11_KEYSTORE_ERR_BAD_PIN)
+                         ? CKR_PIN_INCORRECT : CKR_FUNCTION_FAILED;
+                goto cleanup;
+            }
+            g_slots[s->slot_id].keystore = ks;
+            if (ks_slot_populate_keys(s->slot_id, ks, &wp11_backend_fsdir_ops) > 0) {
+                ks_slot_clear_keys(s->slot_id);
+                wp11_keystore_free(g_slots[s->slot_id].keystore);
+                g_slots[s->slot_id].keystore = NULL;
+                rv = CKR_DEVICE_MEMORY;
+                goto cleanup;
+            }
+        }
+#endif /* WOLFP11_CFG_FSDIR_BACKEND */
 
         /* Mark all sessions on this slot as logged in */
         for (i = 0; i < MAX_SESSIONS; i++) {
@@ -3606,29 +3927,29 @@ CK_RV C_Logout(CK_SESSION_HANDLE hSession)
 #endif /* WOLFP11_CFG_USB_BACKEND */
 
 #ifdef WOLFP11_CFG_USB_FLASH_BACKEND
-    if (g_slots[s->slot_id].flash_path[0] != '\0') {
-        if (g_slots[s->slot_id].proto == WP11_PROTO_SOFT) {
-            /* Soft persistent token: free wolfCrypt key objects and zeroize
-             * the cached PIN.  munlock is best-effort; ignore failure. */
-            soft_slot_clear_keys(s->slot_id);
-            memset(g_slots[s->slot_id].soft_pin, 0,
-                   sizeof(g_slots[s->slot_id].soft_pin));
-            munlock(g_slots[s->slot_id].soft_pin,
-                    sizeof(g_slots[s->slot_id].soft_pin));
-            g_slots[s->slot_id].soft_pin_len = 0;
-        } else {
-            /* Flash hardware token: clear key objects and free the keystore.
-             * Must clear keys BEFORE freeing the keystore because key_priv
-             * points into keystore memory -- freeing first leaves dangling
-             * pointers (wolfP11-be5). */
-            flash_slot_clear_keys(s->slot_id);
-            if (g_slots[s->slot_id].keystore != NULL) {
-                wp11_keystore_free(g_slots[s->slot_id].keystore);
-                g_slots[s->slot_id].keystore = NULL;
-            }
-        }
+    if (g_slots[s->slot_id].proto == WP11_PROTO_SOFT &&
+        g_slots[s->slot_id].keystore_path[0] != '\0') {
+        /* Soft persistent token: free wolfCrypt key objects and zeroize
+         * the cached PIN.  munlock is best-effort; ignore failure. */
+        soft_slot_clear_keys(s->slot_id);
+        memset(g_slots[s->slot_id].soft_pin, 0,
+               sizeof(g_slots[s->slot_id].soft_pin));
+        munlock(g_slots[s->slot_id].soft_pin,
+                sizeof(g_slots[s->slot_id].soft_pin));
+        g_slots[s->slot_id].soft_pin_len = 0;
     }
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+    if (g_slots[s->slot_id].keystore != NULL) {
+        /* Keystore backend (flash or fsdir): clear key objects first, then
+         * free the keystore.  ks_slot_clear_keys matches by free_key_priv == NULL
+         * so it handles both backends correctly (wolfP11-be5). */
+        ks_slot_clear_keys(s->slot_id);
+        wp11_keystore_free(g_slots[s->slot_id].keystore);
+        g_slots[s->slot_id].keystore = NULL;
+    }
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND || WOLFP11_CFG_FSDIR_BACKEND */
 
 #ifdef WOLFP11_CFG_WOLFHSM_BACKEND
     if (g_slots[s->slot_id].proto == WP11_PROTO_WOLFHSM) {
@@ -3743,6 +4064,17 @@ CK_RV C_CreateObject(CK_SESSION_HANDLE hSession,
             default:
                 break;
             }
+        }
+
+        /* wolfP11-p9e5: validate CKA_APPLICATION length before allocating
+         * the key slot.  Silently truncating an over-length value would let
+         * two objects with distinct application strings collide on the stored
+         * identifier, breaking C_FindObjects equality checks.  Checked here
+         * (before in_use = 1) so that cleanup needs no slot teardown. */
+        if (app_val != NULL &&
+            app_val_len > (CK_ULONG)sizeof(g_keys[0].application)) {
+            rv = CKR_ATTRIBUTE_VALUE_INVALID;
+            goto cleanup;
         }
 
         /* Find a free slot */
@@ -3969,11 +4301,9 @@ CK_RV C_CreateObject(CK_SESSION_HANDLE hSession,
 #endif /* WOLFP11_CFG_WOLFHSM_BACKEND */
 
         if (app_val != NULL && app_val_len > 0u) {
-            CK_ULONG alen = app_val_len;
-            if (alen > (CK_ULONG)sizeof(g_keys[gi].application))
-                alen = (CK_ULONG)sizeof(g_keys[gi].application);
-            memcpy(g_keys[gi].application, app_val, (size_t)alen);
-            g_keys[gi].application_len = (uint8_t)alen;
+            /* Length already validated before slot allocation (wolfP11-p9e5). */
+            memcpy(g_keys[gi].application, app_val, (size_t)app_val_len);
+            g_keys[gi].application_len = (uint8_t)app_val_len;
         }
 
         *phObject  = (CK_OBJECT_HANDLE)((CK_ULONG)gi + 1u);
@@ -5781,6 +6111,21 @@ CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         CK_ULONG out_size = mech_hmac_output_size(s->sign_mech);
         Hmac     hmac;
 
+        /* wolfP11-tu9w: out_size == 0 means the mechanism ID was not
+         * recognised by mech_hmac_output_size.  Propagating a zero length
+         * would return 0 to a size-query caller (wrong) and let the HMAC
+         * execution path skip the CKR_BUFFER_TOO_SMALL check, producing
+         * a silent zero-length MAC. */
+        if (out_size == 0u) {
+            s->sign_active = 0;
+            rv = CKR_MECHANISM_INVALID;
+            goto cleanup;
+        }
+
+        /* PKCS#11 2.40 sec.11.11: a NULL pSignature is a size query; the
+         * operation MUST remain active so the caller can immediately follow
+         * with a real C_Sign call.  wolfP11-yn8r reviewed this and confirmed
+         * the spec requires sign_active to stay 1 here. */
         if (pSignature == NULL_PTR) {
             *pulSignatureLen = out_size;
             goto cleanup; /* operation remains active */
@@ -5791,6 +6136,11 @@ CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
             goto cleanup;
         }
 
+        /* wolfP11-z3c7: zero the struct before wc_HmacInit.  wolfCrypt's
+         * wc_HmacFree inspects internal state fields to decide what to wipe;
+         * an uninitialised struct risks a garbage-pointer dereference.
+         * memset must precede wc_HmacInit, not follow it. */
+        memset(&hmac, 0, sizeof(hmac));
         wc_HmacInit(&hmac, NULL, INVALID_DEVID);
         ret = wc_HmacSetKey(&hmac, mech_hmac_type(s->sign_mech),
                             obj->secret, (word32)obj->secret_len);
@@ -5812,9 +6162,10 @@ CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
          * callers (e.g., ssh-pkcs11-client) to announce the wrong size to peers.
          *
          * sig_len_max is populated from the DER at C_Login time by
-         * flash_key_sig_len_max().  If it is 0 (unknown -- soft key or parse
+         * ks_key_sig_len_max().  If it is 0 (unknown -- soft key or parse
          * error), fall back to 512 (RSA-4096 max) as a safe conservative bound. */
-        *pulSignatureLen = (obj->sig_len_max != 0) ? obj->sig_len_max : 512;
+        *pulSignatureLen = (obj->sig_len_max != WP11_SIG_LEN_UNKNOWN)
+                        ? obj->sig_len_max : 512;
         goto cleanup;
     }
 
@@ -6347,12 +6698,20 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
     if (!s->logged_in && key_is_priv) {
         int need_login = (g_slots[s->slot_id].proto == WP11_PROTO_PIV);
 #ifdef WOLFP11_CFG_USB_FLASH_BACKEND
-        need_login = need_login || (g_slots[s->slot_id].flash_path[0] != '\0');
+        need_login = need_login || (g_slots[s->slot_id].keystore_path[0] != '\0');
 #endif
         if (need_login) {
             rv = CKR_USER_NOT_LOGGED_IN; goto cleanup;
         }
     }
+
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+    /* FSDIR slots are read-only: .p11k files are managed externally via the
+     * wp11 CLI.  Key generation is not supported on these slots. */
+    if (g_slots[s->slot_id].proto == WP11_PROTO_FSDIR) {
+        rv = CKR_FUNCTION_NOT_SUPPORTED; goto cleanup;
+    }
+#endif /* WOLFP11_CFG_FSDIR_BACKEND */
 
 #ifdef WOLFP11_CFG_USB_BACKEND
     if (g_slots[s->slot_id].proto == WP11_PROTO_PIV) {
@@ -6670,7 +7029,7 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
     /* Persist: re-save all soft keys to the .p11k file.
      * Best-effort: the key is already in g_keys[]; a save failure only
      * means the key won't survive C_Finalize. */
-    if (g_slots[s->slot_id].flash_path[0] != '\0' &&
+    if (g_slots[s->slot_id].keystore_path[0] != '\0' &&
         g_slots[s->slot_id].soft_pin_len > 0) {
         (void)soft_slot_save(s->slot_id);
     }
