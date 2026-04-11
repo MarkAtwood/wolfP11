@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_test_fsdir.c -- integration tests for the wolfP11 FSDIR backend
  *
  * Requires -DWOLFP11_CFG_TEST and -DWOLFP11_CFG_FSDIR_BACKEND.
@@ -85,14 +106,14 @@ static int test_fsdir_slot_detected(void)
     tmpdir[sizeof(tmpdir) - 1u] = '\0';
     if (mkdtemp(tmpdir) == NULL) {
         printf("SKIP: fsdir_slot_detected: mkdtemp failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (snprintf(p11k_path, sizeof(p11k_path), "%s/test.p11k", tmpdir)
             >= (int)sizeof(p11k_path)) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_slot_detected: path too long\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     /* Create an empty keystore (zero keys) in the temp dir */
@@ -101,7 +122,7 @@ static int test_fsdir_slot_detected(void)
     if (ret != WP11_KEYSTORE_OK) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_slot_detected: keystore_create failed (%d)\n", ret);
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     /* Point the FSDIR watcher at the temp dir */
@@ -109,7 +130,7 @@ static int test_fsdir_slot_detected(void)
         unlink(p11k_path);
         rmdir(tmpdir);
         printf("SKIP: fsdir_slot_detected: setenv failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     rv = C_Initialize(NULL);
@@ -173,14 +194,14 @@ static int test_fsdir_login_correct_pin(void)
     tmpdir[sizeof(tmpdir) - 1u] = '\0';
     if (mkdtemp(tmpdir) == NULL) {
         printf("SKIP: fsdir_login_correct_pin: mkdtemp failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (snprintf(p11k_path, sizeof(p11k_path), "%s/test.p11k", tmpdir)
             >= (int)sizeof(p11k_path)) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_login_correct_pin: path too long\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     ret = wp11_keystore_create(p11k_path, FSDIR_TEST_PIN_BYTES,
@@ -189,14 +210,14 @@ static int test_fsdir_login_correct_pin(void)
         rmdir(tmpdir);
         printf("SKIP: fsdir_login_correct_pin: keystore_create failed (%d)\n",
                ret);
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (setenv("WOLFP11_FSDIR_PATH", tmpdir, 1) != 0) {
         unlink(p11k_path);
         rmdir(tmpdir);
         printf("SKIP: fsdir_login_correct_pin: setenv failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     rv = C_Initialize(NULL);
@@ -291,14 +312,14 @@ static int test_fsdir_login_wrong_pin(void)
     tmpdir[sizeof(tmpdir) - 1u] = '\0';
     if (mkdtemp(tmpdir) == NULL) {
         printf("SKIP: fsdir_login_wrong_pin: mkdtemp failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (snprintf(p11k_path, sizeof(p11k_path), "%s/test.p11k", tmpdir)
             >= (int)sizeof(p11k_path)) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_login_wrong_pin: path too long\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     ret = wp11_keystore_create(p11k_path, FSDIR_TEST_PIN_BYTES,
@@ -307,14 +328,14 @@ static int test_fsdir_login_wrong_pin(void)
         rmdir(tmpdir);
         printf("SKIP: fsdir_login_wrong_pin: keystore_create failed (%d)\n",
                ret);
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (setenv("WOLFP11_FSDIR_PATH", tmpdir, 1) != 0) {
         unlink(p11k_path);
         rmdir(tmpdir);
         printf("SKIP: fsdir_login_wrong_pin: setenv failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     rv = C_Initialize(NULL);
@@ -394,14 +415,14 @@ static int test_fsdir_logout_clears_keys(void)
     tmpdir[sizeof(tmpdir) - 1u] = '\0';
     if (mkdtemp(tmpdir) == NULL) {
         printf("SKIP: fsdir_logout_clears_keys: mkdtemp failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (snprintf(p11k_path, sizeof(p11k_path), "%s/test.p11k", tmpdir)
             >= (int)sizeof(p11k_path)) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_logout_clears_keys: path too long\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     ret = wp11_keystore_create(p11k_path, FSDIR_TEST_PIN_BYTES,
@@ -410,14 +431,14 @@ static int test_fsdir_logout_clears_keys(void)
         rmdir(tmpdir);
         printf("SKIP: fsdir_logout_clears_keys: keystore_create failed (%d)\n",
                ret);
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (setenv("WOLFP11_FSDIR_PATH", tmpdir, 1) != 0) {
         unlink(p11k_path);
         rmdir(tmpdir);
         printf("SKIP: fsdir_logout_clears_keys: setenv failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     rv = C_Initialize(NULL);
@@ -520,20 +541,20 @@ static int test_fsdir_inotify_arrival(void)
     tmpdir[sizeof(tmpdir) - 1u] = '\0';
     if (mkdtemp(tmpdir) == NULL) {
         printf("SKIP: fsdir_inotify_arrival: mkdtemp failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (snprintf(p11k_path, sizeof(p11k_path), "%s/arrive.p11k", tmpdir)
             >= (int)sizeof(p11k_path)) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_inotify_arrival: path too long\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (setenv("WOLFP11_FSDIR_PATH", tmpdir, 1) != 0) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_inotify_arrival: setenv failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     rv = C_Initialize(NULL);
@@ -613,14 +634,14 @@ static int test_fsdir_inotify_departure(void)
     tmpdir[sizeof(tmpdir) - 1u] = '\0';
     if (mkdtemp(tmpdir) == NULL) {
         printf("SKIP: fsdir_inotify_departure: mkdtemp failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (snprintf(p11k_path, sizeof(p11k_path), "%s/depart.p11k", tmpdir)
             >= (int)sizeof(p11k_path)) {
         rmdir(tmpdir);
         printf("SKIP: fsdir_inotify_departure: path too long\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     ret = wp11_keystore_create(p11k_path, FSDIR_TEST_PIN_BYTES,
@@ -629,14 +650,14 @@ static int test_fsdir_inotify_departure(void)
         rmdir(tmpdir);
         printf("SKIP: fsdir_inotify_departure: keystore_create failed (%d)\n",
                ret);
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     if (setenv("WOLFP11_FSDIR_PATH", tmpdir, 1) != 0) {
         unlink(p11k_path);
         rmdir(tmpdir);
         printf("SKIP: fsdir_inotify_departure: setenv failed\n");
-        return 0;
+        return f + 1; /* wolfP11-4prd */
     }
 
     rv = C_Initialize(NULL);

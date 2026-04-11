@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_cli.c -- wolfP11 command-line tool */
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200112L   /* tcgetattr, tcsetattr, getpass */
@@ -20,6 +41,24 @@
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+/* wolfP11-dfv1: plain memset() can be optimised away by the compiler when
+ * the buffer is not subsequently read (dead-store elimination).  cli_zero()
+ * uses a volatile write loop that the compiler cannot elide, providing the
+ * same guarantee as wc_ForceZero() in the wolfCrypt backends.  The CLI
+ * binary links against -lwolfp11 but not -lwolfssl directly, so calling
+ * wc_ForceZero() would require adding -lwolfssl to the link line; the
+ * volatile loop avoids that dependency while being equally safe.
+ * Guarded by WOLFP11_CFG_USB_FLASH_BACKEND because all PIN-handling code
+ * is inside that guard; without it the function would be defined but unused
+ * and generate a -Wunused-function error. */
+static void cli_zero(void *p, size_t n)
+{
+    volatile unsigned char *q = (volatile unsigned char *)p;
+    while (n--) *q++ = 0;
+}
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
 
 static void print_usage(void)
@@ -570,6 +609,38 @@ static int is_pem(const uint8_t *data, size_t len)
     return len >= hdrlen && memcmp(data, hdr, hdrlen) == 0;
 }
 
+/* wolfP11-dyfa: Validate a CKA_LABEL string from a CLI argument.
+ * Rejects empty labels, labels longer than WP11_KEYSTORE_LABEL_MAX, and
+ * labels containing control characters (0x00-0x1F, DEL 0x7F).  Binary or
+ * control-character labels would produce confusing output in C_GetAttributeValue
+ * and could mislead label-based key lookups.
+ * Returns 1 if valid, 0 if invalid (error printed to stderr). */
+static int is_valid_label(const char *label)
+{
+    size_t i;
+    size_t len = strlen(label);
+    if (len == 0u) {
+        fprintf(stderr, "error: label cannot be empty\n");
+        return 0;
+    }
+    if (len > WP11_KEYSTORE_LABEL_MAX) {
+        fprintf(stderr,
+                "error: label too long (max %u chars, got %zu)\n",
+                (unsigned)WP11_KEYSTORE_LABEL_MAX, len);
+        return 0;
+    }
+    for (i = 0u; i < len; i++) {
+        unsigned char c = (unsigned char)label[i];
+        if (c < 0x20u || c == 0x7Fu) {
+            fprintf(stderr,
+                    "error: label contains control character 0x%02x at "
+                    "position %zu\n", (unsigned)c, i);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Load a key from path, auto-detecting PEM vs DER.
  * On success, *der_out is a malloc'd DER buffer (caller must
  * wp11_zero + free), *key_type is set, and *derlen_out is set.
@@ -708,8 +779,8 @@ static int cmd_keystore_create(int argc, char *argv[])
     size_t           built = 0;
     int              ret   = 1;
 
-    memset(pin1, 0, sizeof(pin1));
-    memset(pin2, 0, sizeof(pin2));
+    cli_zero(pin1, sizeof(pin1));
+    cli_zero(pin2, sizeof(pin2));
     memset(entries, 0, sizeof(entries));
 
     /* Parse args: argv[0] == "create" */
@@ -728,6 +799,7 @@ static int cmd_keystore_create(int argc, char *argv[])
                 return 1;
             }
             key_labels[nkeys - 1u] = argv[++i];
+            if (!is_valid_label(key_labels[nkeys - 1u])) return 1;
         } else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
             outpath = argv[++i];
         } else {
@@ -761,17 +833,17 @@ static int cmd_keystore_create(int argc, char *argv[])
     if (plen1 < KS_MIN_PIN_LEN) {
         fprintf(stderr, "error: PIN must be at least %d characters\n",
                 KS_MIN_PIN_LEN);
-        memset(pin1, 0, sizeof(pin1));
+        cli_zero(pin1, sizeof(pin1));
         return 1;
     }
     plen2 = read_pin("Confirm PIN: ", pin2, sizeof(pin2));
     if (plen2 < 0 || strcmp(pin1, pin2) != 0) {
         fprintf(stderr, "error: PINs do not match\n");
-        memset(pin1, 0, sizeof(pin1));
-        memset(pin2, 0, sizeof(pin2));
+        cli_zero(pin1, sizeof(pin1));
+        cli_zero(pin2, sizeof(pin2));
         return 1;
     }
-    memset(pin2, 0, sizeof(pin2));
+    cli_zero(pin2, sizeof(pin2));
 
     /* Load key files and build entries */
     for (i = 0; i < (int)nkeys; i++) {
@@ -809,7 +881,7 @@ static int cmd_keystore_create(int argc, char *argv[])
     ret = 0;
 
 cleanup:
-    memset(pin1, 0, sizeof(pin1));
+    cli_zero(pin1, sizeof(pin1));
     {
         size_t j;
         for (j = 0; j < built; j++) {
@@ -844,7 +916,7 @@ static int cmd_keystore_import_key(int argc, char *argv[])
     int               rc;
 
     memset(entries, 0, sizeof(entries));
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
 
     /* argv[0] == "import-key" */
     if (argc < 2) {
@@ -859,6 +931,7 @@ static int cmd_keystore_import_key(int argc, char *argv[])
             keyfile = argv[++i];
         } else if (strcmp(argv[i], "--label") == 0 && i + 1 < (size_t)argc) {
             label = argv[++i];
+            if (!is_valid_label(label)) return 1;
         } else {
             fprintf(stderr, "error: unknown option '%s'\n", argv[i]);
             return 1;
@@ -919,7 +992,7 @@ static int cmd_keystore_import_key(int argc, char *argv[])
     ret = 0;
 
 cleanup:
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
     if (newder != NULL) {
         memset(newder, 0, newderlen);
         free(newder);
@@ -948,7 +1021,7 @@ static int cmd_keystore_remove_key(int argc, char *argv[])
     int               found = 0;
 
     memset(entries, 0, sizeof(entries));
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
 
     if (argc < 2) {
         fprintf(stderr, "usage: wp11 keystore remove-key <path> "
@@ -1036,7 +1109,7 @@ static int cmd_keystore_remove_key(int argc, char *argv[])
     ret = 0;
 
 cleanup:
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
     wp11_keystore_free(ks);
     return ret;
 }
@@ -1060,8 +1133,8 @@ static int cmd_keystore_pin_change(int argc, char *argv[])
 
     memset(entries, 0, sizeof(entries));
     memset(oldpin,  0, sizeof(oldpin));
-    memset(newpin1, 0, sizeof(newpin1));
-    memset(newpin2, 0, sizeof(newpin2));
+    cli_zero(newpin1, sizeof(newpin1));
+    cli_zero(newpin2, sizeof(newpin2));
 
     if (argc < 2) {
         fprintf(stderr, "usage: wp11 keystore pin-change <path>\n");
@@ -1072,7 +1145,7 @@ static int cmd_keystore_pin_change(int argc, char *argv[])
     oldplen = read_pin("Current PIN: ", oldpin, sizeof(oldpin));
     if (oldplen < 0) {
         fprintf(stderr, "error: could not read PIN\n");
-        memset(oldpin, 0, sizeof(oldpin));
+        cli_zero(oldpin, sizeof(oldpin));
         return 1;
     }
 
@@ -1081,10 +1154,10 @@ static int cmd_keystore_pin_change(int argc, char *argv[])
     if (rc != WP11_KEYSTORE_OK) {
         fprintf(stderr, "error: failed to load '%s' (%d)%s\n", kspath, rc,
                 rc == WP11_KEYSTORE_ERR_BAD_PIN ? " -- wrong PIN?" : "");
-        memset(oldpin, 0, sizeof(oldpin));
+        cli_zero(oldpin, sizeof(oldpin));
         return 1;
     }
-    memset(oldpin, 0, sizeof(oldpin));
+    cli_zero(oldpin, sizeof(oldpin));
 
     newplen1 = read_pin("New PIN: ", newpin1, sizeof(newpin1));
     if (newplen1 < 0) {
@@ -1101,7 +1174,7 @@ static int cmd_keystore_pin_change(int argc, char *argv[])
         fprintf(stderr, "error: PINs do not match\n");
         goto cleanup;
     }
-    memset(newpin2, 0, sizeof(newpin2));
+    cli_zero(newpin2, sizeof(newpin2));
 
     nentries = wp11_keystore_count(ks);
     for (i = 0; i < nentries; i++) {
@@ -1118,8 +1191,8 @@ static int cmd_keystore_pin_change(int argc, char *argv[])
     ret = 0;
 
 cleanup:
-    memset(newpin1, 0, sizeof(newpin1));
-    memset(newpin2, 0, sizeof(newpin2));
+    cli_zero(newpin1, sizeof(newpin1));
+    cli_zero(newpin2, sizeof(newpin2));
     wp11_keystore_free(ks);
     return ret;
 }
@@ -1145,7 +1218,7 @@ static int cmd_keystore_cert_add(int argc, char *argv[])
     int               rc;
 
     memset(entries, 0, sizeof(entries));
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
 
     if (argc < 2) {
         fprintf(stderr, "usage: wp11 keystore cert-add <path> "
@@ -1156,6 +1229,13 @@ static int cmd_keystore_cert_add(int argc, char *argv[])
 
     for (i = 2; i < (size_t)argc; i++) {
         if (strcmp(argv[i], "--label") == 0 && i + 1 < (size_t)argc) {
+            /* wolfP11-yr57: by_label is a LOOKUP argument, not a creation
+             * argument.  Do NOT apply is_valid_label() here: a keystore
+             * created programmatically (via the C API, not the CLI) may have
+             * labels with bytes outside the CLI validator's accepted range.
+             * The user must be able to look up and attach a certificate to
+             * such keys.  is_valid_label() belongs at creation sites only
+             * (cmd_keystore_create, cmd_keystore_import_key). */
             by_label = argv[++i];
         } else if (strcmp(argv[i], "--cert") == 0 && i + 1 < (size_t)argc) {
             certfile = argv[++i];
@@ -1212,7 +1292,7 @@ static int cmd_keystore_cert_add(int argc, char *argv[])
     ret = 0;
 
 cleanup:
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
     if (certder != NULL) {
         free(certder);
     }
@@ -1296,7 +1376,7 @@ static int cmd_keystore_list(int argc, char *argv[])
     int              plen;
     int              rc;
 
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
 
     if (argc < 2) {
         fprintf(stderr, "usage: wp11 keystore list <path>\n");
@@ -1311,7 +1391,7 @@ static int cmd_keystore_list(int argc, char *argv[])
     }
 
     rc = wp11_keystore_load(kspath, (const uint8_t *)pin, (size_t)plen, &ks);
-    memset(pin, 0, sizeof(pin));
+    cli_zero(pin, sizeof(pin));
     if (rc != WP11_KEYSTORE_OK) {
         fprintf(stderr, "error: failed to load '%s' (%d)%s\n", kspath, rc,
                 rc == WP11_KEYSTORE_ERR_BAD_PIN ? " -- wrong PIN?" : "");

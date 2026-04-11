@@ -215,8 +215,6 @@ wolfp11/
 |   +-- vectors/
 |       +-- piv_apdu.json       # SP 800-73 Annex C APDU vectors
 |       +-- openpgp_apdu.json   # OpenPGP card spec APDU vectors
-+-- provider_patch/
-    +-- wolfprovider_devid.patch  # unified diff against ~/wolfProvider
 ```
 
 ---
@@ -637,36 +635,11 @@ call. Sign -> wolfCrypt verify is the required oracle pattern.
 
 ---
 
-### `provider_patch/wolfprovider_devid.patch` -- wolfProvider devId Fix
+### wolfProvider devId fix -- pending upstream
 
-**Purpose:** Close the devId gap in `~/wolfProvider` so wolfProvider routes
-crypto through wolfHSM when configured.
-
-**Files changed in `~/wolfProvider`:**
-
-| File | Change |
-|------|--------|
-| `include/wolfprovider/internal.h` | Add `int devId;` field to `WOLFPROV_CTX` |
-| `src/wp_wolfprovider.c` | Initialize `ctx->devId = INVALID_DEVID` in provider init; add `OSSL_PARAM` entry `"wolfprovider_devid"` of type `OSSL_PARAM_INTEGER` |
-| `src/wp_rsa_kmgmt.c` | Change `wc_InitRsaKey(&rsa->key, NULL)` -> `wc_InitRsaKey_ex(&rsa->key, NULL, prov_ctx->devId)` |
-| `src/wp_ecc_kmgmt.c` | Change `wc_ecc_init_ex(&ecc->key, NULL, INVALID_DEVID)` -> use `prov_ctx->devId` |
-| `src/wp_dh_kmgmt.c` | Same pattern |
-| `src/wp_ecx_kmgmt.c` | Use `_ex` variants for Curve25519/Ed25519/Curve448/Ed448 with `prov_ctx->devId` |
-| `src/wp_rsa_kmgmt.c` | `wc_InitRng_ex` line 1536: use `prov_ctx->devId` |
-
-**Verification:** The patch is correct when this pipeline works end-to-end:
-
-```bash
-# Register wolfHSM callback under WH_DEV_ID
-# Configure wolfprovider with devId = WH_DEV_ID via OSSL_PARAM
-# Then:
-openssl genpkey -provider wolfprovider -algorithm EC -pkeyopt group:P-256 -out key.pem
-openssl dgst -provider wolfprovider -sign key.pem -sha256 -out sig.bin data.bin
-openssl dgst -verify pubkey.pem -sha256 -signature sig.bin data.bin  # external verify
-```
-
-The test must assert the `wc_CryptoCb` callback was invoked (hit counter),
-proving the routing happened and was not silently bypassed.
+The wolfProvider devId gap fix has been submitted upstream as
+`wolfSSL/wolfProvider#390`. No local patch file. Once that PR merges,
+update this section with integration instructions.
 
 ---
 

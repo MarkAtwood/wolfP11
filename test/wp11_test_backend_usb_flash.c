@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_test_backend_usb_flash.c -- independent oracle tests for wp11_backend_flash_ops
  *
  * wolfP11-99lf: flash_sign, flash_verify, and flash_decrypt had zero test
@@ -218,11 +239,15 @@ static int test_flash_sign_ecdsa(const char *tmpdir)
     f += check(siglen > 0 && siglen <= sizeof(sig),
                "flash_sign_ecdsa: siglen is plausible");
 
-    if (ret == 0 && siglen > 0 && der_len > 0) {
+    /* wolfP11-rmed: oracle uses entry->der_bytes (post-roundtrip DER from the
+     * loaded keystore), not the pre-save local `der` copy.  Using the same
+     * bytes that the backend decoded prevents false negatives if wolfCrypt
+     * ever re-encodes the key in a different DER form on load. */
+    if (ret == 0 && siglen > 0 && entry->der_len > 0) {
         idx = 0;
         if (wc_ecc_init(&oracle_ecc) == 0) {
-            if (wc_EccPrivateKeyDecode(der, &idx, &oracle_ecc,
-                                       (word32)der_len) == 0) {
+            if (wc_EccPrivateKeyDecode(entry->der_bytes, &idx, &oracle_ecc,
+                                       (word32)entry->der_len) == 0) {
                 stat = 0;
                 ret  = wc_ecc_verify_hash(sig, (word32)siglen,
                                           hash, (word32)sizeof(hash),
@@ -377,7 +402,8 @@ static int test_flash_sign_ecdsa_sha256(const char *tmpdir)
     f += check(siglen > 0 && siglen <= sizeof(sig),
                "flash_sign_ecdsa_sha256: siglen is plausible");
 
-    if (ret == 0 && siglen > 0 && der_len > 0) {
+    /* wolfP11-rmed: oracle uses entry->der_bytes (post-roundtrip DER). */
+    if (ret == 0 && siglen > 0 && entry->der_len > 0) {
         if (wc_InitSha256(&sha) == 0) {
             ret = wc_Sha256Update(&sha, msg, (word32)sizeof(msg));
             if (ret == 0) ret = wc_Sha256Final(&sha, digest);
@@ -386,8 +412,8 @@ static int test_flash_sign_ecdsa_sha256(const char *tmpdir)
             if (ret == 0) {
                 idx = 0;
                 if (wc_ecc_init(&oracle_ecc) == 0) {
-                    if (wc_EccPrivateKeyDecode(der, &idx, &oracle_ecc,
-                                               (word32)der_len) == 0) {
+                    if (wc_EccPrivateKeyDecode(entry->der_bytes, &idx, &oracle_ecc,
+                                               (word32)entry->der_len) == 0) {
                         stat = 0;
                         ret  = wc_ecc_verify_hash(sig, (word32)siglen,
                                                   digest, WC_SHA256_DIGEST_SIZE,
@@ -457,11 +483,12 @@ static int test_flash_sign_rsa(const char *tmpdir)
     f += check(ret == 0,       "flash_sign_rsa: sign returns 0");
     f += check(siglen == 256u, "flash_sign_rsa: siglen is 256 bytes (RSA-2048)");
 
-    if (ret == 0 && siglen == 256u && der_len > 0) {
+    /* wolfP11-rmed: oracle uses entry->der_bytes (post-roundtrip DER). */
+    if (ret == 0 && siglen == 256u && entry->der_len > 0) {
         idx = 0;
         if (wc_InitRsaKey(&oracle_rsa, NULL) == 0) {
-            if (wc_RsaPrivateKeyDecode(der, &idx, &oracle_rsa,
-                                       (word32)der_len) == 0) {
+            if (wc_RsaPrivateKeyDecode(entry->der_bytes, &idx, &oracle_rsa,
+                                       (word32)entry->der_len) == 0) {
                 ret = wc_RsaSSL_Verify(sig, (word32)siglen,
                                        out, (word32)sizeof(out),
                                        &oracle_rsa);

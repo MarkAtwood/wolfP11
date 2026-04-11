@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_backend.h -- wolfP11 backend registration interface
  *
  * A backend implements crypto operations for a slot.
@@ -10,6 +31,31 @@
 
 #include <stdint.h>
 #include <stddef.h>
+
+/* -------------------------------------------------------------------------
+ * Size downcast safety macros
+ *
+ * wolfCrypt APIs use word32 (uint32_t) for buffer lengths; wolfHSM APIs
+ * use uint16_t.  PKCS#11 callers supply size_t, which is 64 bits on LP64
+ * targets.  Every narrowing cast from size_t to a smaller integer type
+ * must be preceded by one of these checks.  Silent truncation on a 64-bit
+ * host would corrupt the length field, causing wolfCrypt to read/write the
+ * wrong number of bytes -- a silent cryptographic failure or buffer overrun.
+ *
+ * Usage:
+ *   if (!WP11_FITS_U32(sz)) { <cleanup>; return -1; }
+ *   wolfcrypt_fn(buf, (word32)sz, ...);
+ * ---------------------------------------------------------------------- */
+#define WP11_FITS_U32(sz)  ((sz) <= (size_t)UINT32_MAX)
+#define WP11_FITS_U16(sz)  ((sz) <= (size_t)UINT16_MAX)
+
+/* wolfP11-lf4o: maximum OAEP label length in bytes.
+ * Defined here (not in wp11_pkcs11.c or wp11_backend_soft.c) so that the
+ * session-side buffer (oaep_enc_label[]) and the backend stack buffer
+ * (label_buf[]) are always sized identically.  A divergence between two
+ * independent #defines would turn the memcpy of a session label into a stack
+ * overflow inside the backend. */
+#define WP11_OAEP_LABEL_MAX  64u
 
 /* -------------------------------------------------------------------------
  * Backend error codes -- returned by sign/verify/decrypt/derive callbacks
@@ -62,20 +108,33 @@ typedef struct wp11_backend_ops {
     /* Sign data using the key identified by handle.
      * mechanism: CKM_* value
      * in/inlen: data or hash to sign
-     * sig/siglen: output buffer; *siglen set to actual bytes on success */
+     * sig/siglen: output buffer; *siglen set to actual bytes on success
+     *
+     * wolfP11-izdd: MUST NOT be NULL.  Every backend must implement sign.
+     * wp11_backend_validate() in wp11_pkcs11.c checks all required pointers
+     * at C_Initialize time; a misconfigured backend causes CKR_GENERAL_ERROR
+     * before any slot is used.
+     * If a backend has no signing key support, return WP11_BACKEND_ERR_NOT_IMPL
+     * instead of leaving NULL. */
     int (*sign)(const wp11_key_handle_t *handle,
                 uint32_t                mechanism,
                 const uint8_t          *in,    size_t  inlen,
                 uint8_t                *sig,   size_t *siglen);
 
     /* Verify a signature.
-     * Returns 0 on valid, negative on invalid or error. */
+     * Returns 0 on valid, negative on invalid or error.
+     *
+     * wolfP11-izdd: MUST NOT be NULL.  Same constraint as sign above.
+     * Checked by wp11_backend_validate() at C_Initialize time. */
     int (*verify)(const wp11_key_handle_t *handle,
                   uint32_t                 mechanism,
                   const uint8_t           *in,    size_t inlen,
                   const uint8_t           *sig,   size_t siglen);
 
-    /* Decrypt ciphertext. */
+    /* Decrypt ciphertext.
+     *
+     * wolfP11-izdd: MUST NOT be NULL.  Same constraint as sign above.
+     * Checked by wp11_backend_validate() at C_Initialize time. */
     int (*decrypt)(const wp11_key_handle_t *handle,
                    uint32_t                 mechanism,
                    const uint8_t           *ct,    size_t  ctlen,
@@ -94,10 +153,21 @@ typedef struct wp11_backend_ops {
     /* Release backend-private state associated with a key handle's priv
      * pointer.  Called by C_Finalize and C_DestroyObject.
      *
-     * NULL means the backend owns key_priv in bulk and the caller must NOT
-     * free it individually (e.g. flash keystore -- wp11_keystore_free handles
-     * the bulk free).  Non-NULL means the backend expects this function to
-     * be called once per key object when that object is destroyed. */
+     * wolfP11-be5 invariant -- two ownership models:
+     *
+     * NULL   -- backend owns key_priv in bulk; the caller MUST NOT free
+     *           key_priv individually.  Use this when key_priv points into
+     *           a contiguous array allocated and freed as a unit (e.g. the
+     *           flash/fsdir keystore: all entries live in one mlock'd block
+     *           freed by wp11_keystore_free).  The PKCS#11 layer identifies
+     *           keystore-backed keys by free_key_priv == NULL (see
+     *           ks_slot_clear_keys in wp11_pkcs11.c); this sentinel MUST be
+     *           preserved for those backends.
+     *
+     * non-NULL -- backend heap-allocates key_priv per key; this function is
+     *             called exactly once per key when that key is destroyed.
+     *             The soft token (wp11_soft_key_t), USB (wp11_usb_key_priv_t),
+     *             and wolfHSM (wp11_wolfhsm_key_priv_t) backends use this. */
     void (*free_key_priv)(void *key_priv);
 } wp11_backend_ops_t;
 
@@ -181,6 +251,16 @@ extern const wp11_backend_ops_t wp11_backend_fsdir_ops;
 
 #ifdef WOLFP11_CFG_WOLFHSM_BACKEND
 
+/* wolfP11-a0oa: magic sentinel for wp11_wolfhsm_key_priv_t.
+ * ctx is stored as void* to decouple wp11_backend.h from wolfHSM headers;
+ * the implementation casts it to whClientContext*.  A corrupted key handle
+ * or a wrong pointer stored as key_priv would cause the cast to silently
+ * operate on garbage memory.  The magic field lets the accessor (hsm_entry
+ * in wp11_backend_wolfhsm.c) validate the struct identity before trusting
+ * any pointer inside it.  It is set in wp11_wolfhsm_alloc_key_priv and
+ * checked before every void* cast. */
+#define WP11_WOLFHSM_KEY_MAGIC  0x57483131U  /* 'W','H','1','1' in ASCII */
+
 /* Per-key private state for wolfHSM-backed keys.
  *
  * ctx is a non-owning pointer to the slot's whClientContext.  The slot
@@ -194,10 +274,12 @@ extern const wp11_backend_ops_t wp11_backend_fsdir_ops;
  * 0 for EC keys.  Caching it here avoids a server round-trip per RSA
  * operation just to query the key size. */
 typedef struct {
-    void    *ctx;       /* whClientContext* -- cast in implementation        */
-    uint16_t key_id;    /* wolfHSM server-side key ID (whKeyId = uint16_t)  */
-    int      key_type;  /* WP11_KEY_TYPE_RSA or WP11_KEY_TYPE_EC            */
-    uint16_t key_size;  /* RSA modulus bytes; 0 for EC                      */
+    uint32_t magic;         /* WP11_WOLFHSM_KEY_MAGIC -- validate before void* cast */
+    void    *ctx;           /* whClientContext* -- cast in implementation        */
+    uint16_t key_id;        /* wolfHSM server-side key ID (whKeyId = uint16_t)  */
+    int      key_type;      /* WP11_KEY_TYPE_RSA or WP11_KEY_TYPE_EC            */
+    uint16_t key_size;      /* RSA modulus bytes; 0 for EC                      */
+    int      generated_here; /* 1 if created by C_GenerateKeyPair; evict on free */
 } wp11_wolfhsm_key_priv_t;
 
 /* Allocate and initialise a wolfHSM key private struct.

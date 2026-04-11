@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_test_piv.c -- PIV protocol unit tests
  *
  * Tests verify APDU framing byte-for-byte against NIST SP 800-73-4 vectors.
@@ -1182,6 +1203,49 @@ static int test_tlv_sign_inner_overrun(void)
                  "tlv_sign_inner_overrun: inner len > container -> WP11_PIV_ERR_ENCODING");
 }
 
+/* wolfP11-d2qj: valid tag, 2-byte long-form length (0x82 indicator), but the
+ * value content is shorter than the declared 256 bytes.  Tests the
+ * tlv_expect() path: ber_len_decode succeeds (3-byte form fully present),
+ * but the resulting vlen > remaining bytes -> WP11_PIV_ERR_ENCODING.
+ * Distinct from test_tlv_sign_outer_overrun which uses a short-form length.
+ */
+static int test_tlv_sign_outer_longform_truncated_value(void)
+{
+    mock_state_t     state;
+    wp11_ccid_ctx_t *ccid = NULL;
+    uint8_t          challenge[16];
+    uint8_t          sig[64];
+    size_t           siglen = sizeof(sig);
+    int              rc;
+
+    (void)memset(challenge, 0x05u, sizeof(challenge));
+    (void)memset(&state, 0, sizeof(state));
+    state.sw1 = 0x90u;
+    state.sw2 = 0x00u;
+    /* 7C 82 01 00: TAG_DAT, 2-byte long-form length = 256.
+     * Only 2 bytes of value follow; ber_len_decode succeeds on the 3-byte
+     * form but tlv_expect detects vlen=256 > available=2. */
+    state.extra[0] = 0x7Cu;
+    state.extra[1] = 0x82u;  /* 2-byte long-form indicator */
+    state.extra[2] = 0x01u;  /* high byte of length */
+    state.extra[3] = 0x00u;  /* low byte: 0x0100 = 256 */
+    state.extra[4] = 0x82u;  /* start of value -- far too short */
+    state.extra[5] = 0x04u;
+    state.extra_len = 6u;
+
+    rc = wp11_ccid_open_mock(mock_transport, &state, &ccid);
+    if (rc != WP11_CCID_OK) {
+        printf("FAIL: tlv_sign_outer_longform_truncated (open_mock failed)\n");
+        return 1;
+    }
+    rc = wp11_piv_sign(ccid, WP11_PIV_SLOT_SIGN, WP11_PIV_ALG_EC_P256,
+                       challenge, sizeof(challenge), sig, &siglen);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_PIV_ERR_ENCODING,
+                 "tlv_sign_outer_longform_truncated: 2-byte len > available -> WP11_PIV_ERR_ENCODING");
+}
+
 /* ecdh: wrong outer tag -> ERR_SW */
 static int test_tlv_ecdh_wrong_outer_tag(void)
 {
@@ -1357,6 +1421,7 @@ int wp11_test_piv(void)
     failures += test_tlv_sign_wrong_inner_tag();
     failures += test_tlv_sign_outer_overrun();
     failures += test_tlv_sign_inner_overrun();
+    failures += test_tlv_sign_outer_longform_truncated_value();
     failures += test_tlv_ecdh_wrong_outer_tag();
     failures += test_tlv_ecdh_wrong_inner_tag();
     failures += test_tlv_get_cert_wrong_outer_tag();

@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_ccid.c -- wolfP11 CCID transport over libusb bulk transfers
  *
  * Frames ISO 7816 APDUs in CCID PC_to_RDR_XfrBlock messages and parses
@@ -247,8 +268,18 @@ int wp11_ccid_apdu(wp11_ccid_ctx_t *ctx,
                    const uint8_t   *cmd,  size_t  cmdlen,
                    uint8_t         *resp, size_t *resplen)
 {
-    /* Working buffers: CCID header (10) + up to 261 bytes APDU is typical,
-     * but we size generously.  Stack-allocate for simplicity. */
+    /* Working buffers: CCID header (10) + up to 512 bytes APDU payload.
+     *
+     * 522 bytes is sufficient because wolfP11 uses ISO 7816-4 short APDUs
+     * with GET RESPONSE chaining (SW1=0x61) for responses longer than 256
+     * bytes.  Extended-length APDUs (ISO 7816-4 section 5.1) are not issued;
+     * each individual CCID frame therefore fits comfortably in 522 bytes.
+     *
+     * If extended APDUs are ever added, both buffers and the cmdlen guard
+     * must be enlarged to match the new maximum frame size, or silent
+     * truncation will occur: libusb clips the read at sizeof(frame_in), the
+     * CCID header (first 10 bytes including seq) still validates, and the
+     * caller receives a silently truncated APDU response. */
     uint8_t  frame_out[CCID_HEADER_LEN + 512];
     uint8_t  frame_in[CCID_HEADER_LEN + 512];
     size_t   frame_out_len;
@@ -323,6 +354,15 @@ int wp11_ccid_apdu(wp11_ccid_ctx_t *ctx,
              * send its response.  CCID conversation is now desynchronized.
              * LIBUSB_ERROR_TIMEOUT is not device removal -- RSA-2048 sign on
              * slow tokens can take >2s.  Do NOT conflate these two errors. */
+            /* wolfP11-xwqv: desync is permanent -- never cleared.  An OUT
+             * that succeeded followed by a failed IN means the device has
+             * processed our command and is waiting to send a response we
+             * can no longer receive.  The CCID sequence counters are now
+             * out of step and there is no safe in-band recovery; the
+             * caller must close and reopen the device to resynchronize.
+             * Attempting to send another command on this context would
+             * deliver our OUT before reading the pending IN, which some
+             * devices interpret as a protocol error or reset. */
             ctx->desync = 1;
             if (ret == LIBUSB_ERROR_NO_DEVICE) return WP11_CCID_ERR_NO_CARD;
             if (ret == LIBUSB_ERROR_TIMEOUT)   return WP11_CCID_ERR_TIMEOUT;

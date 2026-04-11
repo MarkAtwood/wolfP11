@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_pkcs11.c -- wolfP11 PKCS#11 2.40 C_* function implementations */
 
 /* _POSIX_C_SOURCE is required for pthread_cond_t, pthread_mutex_t, and
@@ -24,6 +45,7 @@
 #include <wolfssl/wolfcrypt/sha256.h>   /* wc_Sha256, wc_InitSha256/Sha256Update/Final */
 #include <wolfssl/wolfcrypt/sha512.h>   /* wc_Sha384/Sha512 */
 #include <wolfssl/wolfcrypt/hmac.h>     /* Hmac, wc_HmacInit/SetKey/Update/Final */
+#include <wolfssl/wolfcrypt/rsa.h>     /* RsaKey, wc_Rsa* (PKCS#1v15 and OAEP), WC_MGF1* */
 #include <pthread.h>
 #include <string.h>
 #include <stdlib.h>
@@ -98,6 +120,7 @@ typedef struct wp11_soft_key wp11_soft_key_t;
 void             wp11_soft_key_free(wp11_soft_key_t *key);
 wp11_soft_key_t *wp11_soft_key_ref(wp11_soft_key_t *key);
 wp11_soft_key_t *wp11_soft_key_new_ecc_p256(void);
+wp11_soft_key_t *wp11_soft_key_new_ed25519(void);
 wp11_soft_key_t *wp11_soft_key_new_rsa2048(void);
 wp11_soft_key_t *wp11_soft_key_new_from_der(const uint8_t *der, size_t derlen,
                                              int key_type);
@@ -113,6 +136,10 @@ int wp11_soft_key_export_rsa_pub(wp11_soft_key_t *key,
  * Defined in wp11_backend_soft.c under WOLFP11_CFG_TEST. */
 int wp11_soft_key_test_export_pub_x963(wp11_soft_key_t *key,
                                         uint8_t *out, word32 *outlen);
+/* Test-only hook: export Ed25519 public key as 32-byte raw key.
+ * Defined in wp11_backend_soft.c under WOLFP11_CFG_TEST. */
+int wp11_soft_key_test_export_ed25519_pub(wp11_soft_key_t *key,
+                                           uint8_t *out, word32 *outlen);
 #endif
 
 /* -------------------------------------------------------------------------
@@ -153,6 +180,12 @@ static int g_initialized = 0;
  * (CKA_CLASS, CKA_KEY_TYPE: 4-8 bytes), CKA_ID (<=16 bytes),
  * CKA_LABEL (<=32 bytes), CKA_TOKEN (1 byte). */
 #define FIND_ATTR_MAX_VAL_LEN 64u
+
+/* AES-GCM IV and AAD buffer limits.
+ * GCM standard IV is 96 bits (12 bytes); 128 bits (16 bytes) is the max.
+ * AAD of 64 bytes is a conservative cap for the soft token. */
+#define WP11_GCM_IV_MAX  16u
+#define WP11_GCM_AAD_MAX 64u
 
 typedef struct {
     CK_ATTRIBUTE_TYPE type;
@@ -198,6 +231,39 @@ typedef struct {
         Des  des;
         Des3 des3;
     } enc_ctx;
+    /* AES-GCM encrypt parameters (valid while encrypt_mech == CKM_AES_GCM).
+     * IV and AAD are copied from CK_GCM_PARAMS at C_EncryptInit time so
+     * the caller's pMechanism->pParameter pointer need not remain valid. */
+    uint8_t  gcm_enc_iv[WP11_GCM_IV_MAX];
+    CK_ULONG gcm_enc_iv_len;
+    uint8_t  gcm_enc_aad[WP11_GCM_AAD_MAX];
+    CK_ULONG gcm_enc_aad_len;
+    CK_ULONG gcm_enc_tag_bits;
+    /* AES-GCM decrypt parameters (valid while decrypt_mech == CKM_AES_GCM). */
+    uint8_t  gcm_dec_iv[WP11_GCM_IV_MAX];
+    CK_ULONG gcm_dec_iv_len;
+    uint8_t  gcm_dec_aad[WP11_GCM_AAD_MAX];
+    CK_ULONG gcm_dec_aad_len;
+    CK_ULONG gcm_dec_tag_bits;
+    /* RSA-OAEP encrypt/decrypt parameters (valid while mech == CKM_RSA_PKCS_OAEP).
+     * Parsed from CK_RSA_PKCS_OAEP_PARAMS at Init time.
+     * wolfP11-lf4o: WP11_OAEP_LABEL_MAX is in wp11_backend.h (not here). */
+    int      oaep_enc_hash_type;     /* WC_HASH_TYPE_* */
+    int      oaep_enc_mgf;           /* WC_MGF1* */
+    uint8_t  oaep_enc_label[WP11_OAEP_LABEL_MAX];
+    word32   oaep_enc_label_len;
+    int      oaep_dec_hash_type;
+    int      oaep_dec_mgf;
+    uint8_t  oaep_dec_label[WP11_OAEP_LABEL_MAX];
+    word32   oaep_dec_label_len;
+    /* RSA-PSS sign/verify parameters (valid while mech == CKM_RSA_PKCS_PSS).
+     * Parsed from CK_RSA_PKCS_PSS_PARAMS at Init time. */
+    int      pss_sign_hash_type;    /* WC_HASH_TYPE_* */
+    int      pss_sign_mgf;          /* WC_MGF1* */
+    int      pss_sign_salt_len;     /* wolfCrypt saltLen: RSA_PSS_SALT_LEN_DEFAULT or explicit */
+    int      pss_verify_hash_type;
+    int      pss_verify_mgf;
+    int      pss_verify_salt_len;   /* wolfCrypt saltLen: RSA_PSS_SALT_LEN_DEFAULT or explicit */
     /* Digest operation state */
     int               digest_active;
     int               digest_oneshot;   /* 1 after C_Digest(NULL) size query  */
@@ -398,15 +464,11 @@ static unsigned int          g_hotplug_dropped = 0u; /* events dropped due to fu
 #ifdef WOLFP11_CFG_USB_BACKEND
 /* Background thread that drives the libusb event loop so hotplug callbacks fire. */
 static pthread_t              g_event_thread;
-/* wolfP11-6vz: volatile is insufficient on weakly-ordered architectures
- * (ARM, MIPS): it prevents compiler caching but provides no hardware memory
- * barrier.  A store from the main thread may not be visible to the background
- * thread before the wakeup syscall fires.  We use GCC/clang __atomic builtins
- * (available in C99 mode) with RELEASE/ACQUIRE ordering:
- *   Store(__ATOMIC_RELEASE): visible before libusb_interrupt_event_handler()
- *   Load (__ATOMIC_ACQUIRE): thread sees the store before acting on exit cond.
- * Stores that occur while g_lock is held and before thread creation use
- * RELAXED -- no other thread can observe them at that point. */
+/* wolfP11-6vz: __atomic builtins with RELEASE/ACQUIRE ordering (not volatile,
+ * which lacks hardware barriers on ARM/MIPS).
+ *   Store(__ATOMIC_RELEASE): visible before the wakeup syscall fires.
+ *   Load (__ATOMIC_ACQUIRE): thread sees the store before acting on exit flag.
+ * Stores before thread creation use RELAXED -- no concurrent observer yet. */
 static int                    g_event_thread_running = 0;
 static libusb_context        *g_usb_ctx = NULL;
 static libusb_hotplug_callback_handle g_hotplug_handle;
@@ -485,8 +547,36 @@ static CK_KEY_TYPE mech_required_key_type(CK_MECHANISM_TYPE mech)
     switch (mech) {
     case CKM_DES_ECB:  case CKM_DES_CBC:  return CKK_DES;
     case CKM_DES3_ECB: case CKM_DES3_CBC: return CKK_DES3;
-    case CKM_AES_ECB:  case CKM_AES_CBC:  return CKK_AES;
+    case CKM_AES_ECB:  case CKM_AES_CBC: case CKM_AES_GCM:  return CKK_AES;
     default: return (CK_KEY_TYPE)-1;
+    }
+}
+
+/* Map a PKCS#11 hash mechanism (CKM_SHA_*) to a wolfCrypt wc_HashType.
+ * Returns WC_HASH_TYPE_NONE (0) for unrecognized algorithms. */
+static int ck_hash_to_wc(CK_MECHANISM_TYPE hash_alg)
+{
+    switch (hash_alg) {
+    case CKM_SHA_1:  return (int)WC_HASH_TYPE_SHA;
+    case CKM_SHA224: return (int)WC_HASH_TYPE_SHA224;
+    case CKM_SHA256: return (int)WC_HASH_TYPE_SHA256;
+    case CKM_SHA384: return (int)WC_HASH_TYPE_SHA384;
+    case CKM_SHA512: return (int)WC_HASH_TYPE_SHA512;
+    default:         return 0;
+    }
+}
+
+/* Map a PKCS#11 MGF type (CKG_MGF1_*) to a wolfCrypt WC_MGF1* constant.
+ * Returns -1 for unrecognized types. */
+static int ck_mgf_to_wc(CK_ULONG mgf)
+{
+    switch (mgf) {
+    case CKG_MGF1_SHA1:   return WC_MGF1SHA1;
+    case CKG_MGF1_SHA224: return WC_MGF1SHA224;
+    case CKG_MGF1_SHA256: return WC_MGF1SHA256;
+    case CKG_MGF1_SHA384: return WC_MGF1SHA384;
+    case CKG_MGF1_SHA512: return WC_MGF1SHA512;
+    default:              return -1;
     }
 }
 
@@ -632,6 +722,8 @@ static void piv_slot_clear_keys(CK_SLOT_ID slot_id)
         if (g_keys[gi].in_use &&
             g_keys[gi].slot_id == slot_id &&
             g_keys[gi].backend_ops == &wp11_backend_usb_ops) {
+            /* wolfP11-be5: free_key_priv is non-NULL for the USB backend
+             * (usb_free_key_priv).  NULL check is defensive. */
             if (g_keys[gi].key_priv != NULL &&
                 g_keys[gi].backend_ops->free_key_priv != NULL) {
                 g_keys[gi].backend_ops->free_key_priv(g_keys[gi].key_priv);
@@ -666,7 +758,15 @@ static CK_SLOT_ID slot_remove(uint16_t vid, uint16_t pid)
 
             /* Invalidate all open sessions on this slot so that subsequent
              * C_* calls on those handles return CKR_SESSION_HANDLE_INVALID.
-             * Per PKCS#11 2.40 sec.11.16, token removal may invalidate sessions. */
+             * Per PKCS#11 2.40 sec.11.16, token removal may invalidate sessions.
+             *
+             * wolfP11-cfj9: this memset is safe despite the concurrent USB
+             * backend thread.  slot_remove() is always called with g_lock held
+             * (see line 994: wc_LockMutex(&g_lock)).  All C_* operations also
+             * hold g_lock for their entire duration, including USB I/O.  The
+             * memset therefore cannot race with an in-progress C_Sign or
+             * C_Decrypt -- the mutex serialises them.  The apparent risk
+             * disappears when the two-lock model (lines 102-116) is considered. */
             for (j = 0; j < MAX_SESSIONS; j++) {
                 if (g_sessions[j].in_use &&
                     g_sessions[j].slot_id == i) {
@@ -763,6 +863,14 @@ static CK_SLOT_ID slot_remove_keystore(const char *path)
     CK_SLOT_ID i;
     int j;
 
+    /* proto is not checked here (contrast slot_add_keystore which checks it
+     * in the re-insertion loop).  Removal events (inotify file-departure)
+     * deliver only the path; no proto is available at the call site.  Path
+     * uniqueness per backend type is a construction-time invariant: USB flash
+     * paths come from WOLFP11_CFG_USB_FLASH_WATCH_DIR and FSDIR paths from
+     * WOLFP11_CFG_FSDIR_PATH, so they cannot collide.  If that invariant is
+     * ever relaxed, add a proto parameter and check g_slots[i].proto here.
+     * (wolfP11-ifhp) */
     for (i = 1; i < (CK_SLOT_ID)MAX_SLOTS; i++) {
         if (g_slots[i].in_use &&
             g_slots[i].token_present &&
@@ -851,11 +959,16 @@ static void hotplug_push_event(CK_SLOT_ID slot_id, int arrived)
         g_hotplug_tail = next_tail;
         pthread_cond_broadcast(&g_hotplug_cond);
     }
-    /* If queue is full, drop the event and count it.  Callers can re-enumerate
-     * via C_GetSlotList to recover current state.  g_hotplug_dropped is a
-     * diagnostic counter readable in tests via wp11_test_hotplug_dropped(). */
+    /* wolfP11-t246: queue full -- drop the event and wake any blocked
+     * C_WaitForSlotEvent caller.  The wakeup drains older events from the
+     * queue, making room for future events and signalling the application
+     * to re-enumerate via C_GetSlotList.  g_hotplug_dropped is incremented
+     * so tests can verify the overflow path was exercised; the application
+     * should treat any C_WaitForSlotEvent result as a trigger to re-query
+     * C_GetSlotList rather than relying solely on the returned slot_id. */
     else {
         g_hotplug_dropped++;
+        pthread_cond_broadcast(&g_hotplug_cond);
     }
     (void)pthread_mutex_unlock(&g_hotplug_mutex);
 }
@@ -1272,7 +1385,16 @@ static CK_ULONG ks_key_sig_len_max(const wp11_key_entry_t *entry)
         key_size = wc_ecc_size(&ecc);
         wc_ecc_free(&ecc);
         if (key_size <= 0) return 0;
-        /* DER ECDSA: SEQUENCE(2) + 2xINTEGER(2 + key_size + 1 pad) */
+        /* DER ECDSA tight upper bound:
+         *   SEQUENCE: tag(1) + len(1, short-form since content ≤ 127 bytes
+         *             for P-256/P-384) = 2 bytes
+         *   INTEGER r: tag(1) + len(1) + optional 0x00 pad(1) + key_size = key_size+3
+         *   INTEGER s: same = key_size+3
+         *   Total: 2 + 2*(key_size+3) = 8 + 2*key_size
+         * P-256 (key_size=32) -> 72; P-384 (key_size=48) -> 104.
+         *
+         * Note: PIV hardware slot tables hardcode 105 for P-384 (one byte of
+         * slack).  Both 104 and 105 are correct upper bounds; 104 is tight. */
         return (CK_ULONG)(8 + 2 * key_size);
     } else {
         RsaKey rsa;
@@ -1453,6 +1575,9 @@ static void soft_slot_clear_keys(CK_SLOT_ID slot_id)
         if (g_keys[gi].in_use &&
             g_keys[gi].slot_id == slot_id &&
             g_keys[gi].backend_ops == &wp11_backend_soft_ops) {
+            /* wolfP11-be5: free_key_priv is non-NULL for the soft backend
+             * (soft_free_key_priv releases the wp11_soft_key_t).  NULL
+             * check is defensive. */
             if (g_keys[gi].key_priv != NULL &&
                 g_keys[gi].backend_ops->free_key_priv != NULL) {
                 g_keys[gi].backend_ops->free_key_priv(g_keys[gi].key_priv);
@@ -2074,6 +2199,27 @@ static void *fsdir_thread_fn(void *arg)
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND || WOLFP11_CFG_FSDIR_BACKEND */
 
 /* -------------------------------------------------------------------------
+ * Backend validation
+ * ---------------------------------------------------------------------- */
+
+/* Verify that all required function pointers in ops are non-NULL.
+ * Required: sign, verify, decrypt -- the three operations every PKCS#11 token
+ * must support for the primary key types.  derive and free_key_priv are
+ * intentionally optional: derive is only needed for DH/ECDH (not all backends
+ * expose key agreement); free_key_priv == NULL is the sentinel that signals
+ * the backend owns key_priv in bulk (flash/fsdir keystore pattern, wolfP11-be5)
+ * rather than per-key heap allocation.
+ * Returns 0 if the ops table is valid, -1 if any required pointer is NULL. */
+static int wp11_backend_validate(const wp11_backend_ops_t *ops)
+{
+    if (ops == NULL)          return -1;
+    if (ops->sign    == NULL) return -1;
+    if (ops->verify  == NULL) return -1;
+    if (ops->decrypt == NULL) return -1;
+    return 0;
+}
+
+/* -------------------------------------------------------------------------
  * C_Initialize / C_Finalize
  * ---------------------------------------------------------------------- */
 
@@ -2137,9 +2283,15 @@ CK_RV C_Initialize(CK_VOID_PTR pInitArgs)
         if (sp == NULL) {
             const char *home = getenv("HOME");
             if (home != NULL) {
-                snprintf(g_slots[0].keystore_path,
-                         sizeof(g_slots[0].keystore_path),
-                         "%s/.wolfp11/soft.p11k", home);
+                int n = snprintf(g_slots[0].keystore_path,
+                                 sizeof(g_slots[0].keystore_path),
+                                 "%s/.wolfp11/soft.p11k", home);
+                /* If $HOME is so long that the path would be truncated,
+                 * clear the path and fall through to no-persistence mode
+                 * rather than silently using a wrong truncated path. */
+                if (n < 0 || (size_t)n >= sizeof(g_slots[0].keystore_path)) {
+                    g_slots[0].keystore_path[0] = '\0';
+                }
             }
         } else {
             strncpy(g_slots[0].keystore_path, sp,
@@ -2193,12 +2345,8 @@ CK_RV C_Initialize(CK_VOID_PTR pInitArgs)
 
     /* Initialize the hotplug mutex and condition variable.
      * Done here (not statically) for correct destroy-on-finalize lifecycle.
-     *
-     * wolfP11-nnv: the two inits are guarded separately.  A short-circuit
-     * compound condition (A || B) would silently leak the mutex if A succeeds
-     * and B fails, because 'goto cleanup' does not call pthread_mutex_destroy.
-     * Separating them lets us destroy exactly what was successfully initialised
-     * before returning the error. */
+     * wolfP11-nnv: guarded separately to destroy exactly what was initialised
+     * on error (a compound OR would leak the mutex if cond_init fails). */
     if (pthread_mutex_init(&g_hotplug_mutex, NULL) != 0) {
         rv = CKR_GENERAL_ERROR;
         goto cleanup;
@@ -2300,6 +2448,39 @@ CK_RV C_Initialize(CK_VOID_PTR pInitArgs)
     }
 #endif /* WOLFP11_CFG_FSDIR_BACKEND */
 
+    /* Validate all compiled-in backend ops tables before marking
+     * the library initialized.  A NULL required pointer means the backend
+     * is broken at compile time; fail hard rather than letting C_Sign
+     * discover the problem at first use. */
+    if (wp11_backend_validate(&wp11_backend_soft_ops) != 0) {
+        rv = CKR_GENERAL_ERROR;
+        goto cleanup;
+    }
+#ifdef WOLFP11_CFG_USB_BACKEND
+    if (wp11_backend_validate(&wp11_backend_usb_ops) != 0) {
+        rv = CKR_GENERAL_ERROR;
+        goto cleanup;
+    }
+#endif
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+    if (wp11_backend_validate(&wp11_backend_flash_ops) != 0) {
+        rv = CKR_GENERAL_ERROR;
+        goto cleanup;
+    }
+#endif
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+    if (wp11_backend_validate(&wp11_backend_fsdir_ops) != 0) {
+        rv = CKR_GENERAL_ERROR;
+        goto cleanup;
+    }
+#endif
+#ifdef WOLFP11_CFG_WOLFHSM_BACKEND
+    if (wp11_backend_validate(&wp11_backend_wolfhsm_ops) != 0) {
+        rv = CKR_GENERAL_ERROR;
+        goto cleanup;
+    }
+#endif
+
     g_initialized = 1;
 
 cleanup:
@@ -2400,28 +2581,24 @@ CK_RV C_Finalize(CK_VOID_PTR pReserved)
     }
 #endif /* WOLFP11_CFG_WOLFHSM_BACKEND */
 
+    /* wolfP11-5x3z: memset(g_slots) here, before the pthread_joins below.
+     * Safe because: (1) g_lock is held -- no background thread is inside a
+     * g_lock-protected g_slots access; (2) g_lock_ready is set to 0 before
+     * unlock, so any thread acquiring g_lock after this point fails WP11_LOCK()
+     * and exits without touching g_slots; (3) pthread_joins confirm all threads
+     * have exited before wc_FreeMutex. */
     memset(g_slots, 0, sizeof(g_slots));
 
 cleanup:
-    /* wolfP11-bpu: the shutdown sequence is ordered to eliminate the window
-     * where hotplug_cb (USB event thread) or flash_file_arrived/departed
-     * (inotify thread) could call wc_LockMutex(&g_lock) after the mutex has
-     * been destroyed.
-     *
-     * Correct order:
-     *   1. Set g_lock_ready = 0 so WP11_LOCK() in C_* functions fails fast.
-     *   2. Release g_lock so any in-flight hotplug_cb / flash thread callback
-     *      that is already waiting on the mutex can complete and return.
-     *   3. Signal and join every background thread.  After pthread_join
-     *      returns, no thread can ever call wc_LockMutex again.
-     *   4. THEN destroy g_lock with wc_FreeMutex.  Safe: no live threads.
-     *
-     * The old code called wc_FreeMutex BEFORE the joins (between steps 2 and 3),
-     * which left a window where a hotplug event could fire and call
-     * wc_LockMutex on a destroyed mutex -- undefined behaviour per POSIX. */
+    /* wolfP11-bpu: shutdown order prevents background threads from calling
+     * wc_LockMutex after the mutex is destroyed:
+     *   1. Set g_lock_ready = 0 (WP11_LOCK() in C_* functions fails fast).
+     *   2. Release g_lock (in-flight callbacks complete and return).
+     *   3. Join background threads (no thread can call wc_LockMutex after).
+     *   4. Destroy g_lock with wc_FreeMutex (no live threads). */
     g_lock_ready = 0;
     WP11_UNLOCK();
-    /* Do NOT call wc_FreeMutex here -- threads are still running. */
+    /* wc_FreeMutex is NOT called here -- background threads are still running. */
 
 #ifdef WOLFP11_CFG_USB_BACKEND
     /* Stop the event thread: set flag, interrupt libusb's blocking wait,
@@ -2716,11 +2893,15 @@ cleanup:
  * C_GetMechanismList / C_GetMechanismInfo
  * ---------------------------------------------------------------------- */
 
+/* Mechanisms supported by the soft backend (wolfCrypt direct). */
 static const CK_MECHANISM_TYPE g_mechs[] = {
     CKM_RSA_PKCS,
+    CKM_RSA_PKCS_OAEP,
+    CKM_RSA_PKCS_PSS,
     CKM_ECDSA,
     CKM_ECDSA_SHA256,
     CKM_ECDH1_DERIVE,
+    CKM_EDDSA,
     CKM_DES_KEY_GEN,
     CKM_DES_ECB,
     CKM_DES_CBC,
@@ -2730,6 +2911,7 @@ static const CK_MECHANISM_TYPE g_mechs[] = {
     CKM_AES_KEY_GEN,
     CKM_AES_ECB,
     CKM_AES_CBC,
+    CKM_AES_GCM,
     CKM_MD5,
     CKM_MD5_HMAC,
     CKM_SHA_1,
@@ -2743,11 +2925,45 @@ static const CK_MECHANISM_TYPE g_mechs[] = {
 };
 #define NUM_MECHS ((CK_ULONG)(sizeof(g_mechs) / sizeof(g_mechs[0])))
 
+#ifdef WOLFP11_CFG_WOLFHSM_BACKEND
+/* wolfHSM backend: raw RSA mod-exp (PKCS#1 v1.5 padded client-side),
+ * ECDSA (raw hash), ECDSA-SHA256 (hash on client), and ECDH.
+ * RSA-PSS, OAEP, AES, DES, HMAC, and digest are not supported
+ * (see wolfP11-l3ex). */
+static const CK_MECHANISM_TYPE g_wolfhsm_mechs[] = {
+    CKM_RSA_PKCS,
+    CKM_ECDSA,
+    CKM_ECDSA_SHA256,
+    CKM_ECDH1_DERIVE,
+};
+#define NUM_WOLFHSM_MECHS \
+    ((CK_ULONG)(sizeof(g_wolfhsm_mechs) / sizeof(g_wolfhsm_mechs[0])))
+#endif
+
+/* Return the mechanism list and count for a given slot.
+ * Must be called under g_lock with slot_valid(slotID) already confirmed. */
+static void slot_mechs(CK_SLOT_ID slotID,
+                       const CK_MECHANISM_TYPE **out_mechs, CK_ULONG *out_n)
+{
+    (void)slotID; /* used only when WOLFP11_CFG_WOLFHSM_BACKEND is defined */
+#ifdef WOLFP11_CFG_WOLFHSM_BACKEND
+    if (g_slots[slotID].proto == WP11_PROTO_WOLFHSM) {
+        *out_mechs = g_wolfhsm_mechs;
+        *out_n = NUM_WOLFHSM_MECHS;
+        return;
+    }
+#endif
+    *out_mechs = g_mechs;
+    *out_n = NUM_MECHS;
+}
+
 CK_RV C_GetMechanismList(CK_SLOT_ID slotID,
                            CK_MECHANISM_TYPE_PTR pMechanismList,
                            CK_ULONG_PTR pulCount)
 {
     CK_RV rv = CKR_OK;
+    const CK_MECHANISM_TYPE *mechs;
+    CK_ULONG n;
 
     WP11_LOCK(CKR_CRYPTOKI_NOT_INITIALIZED);
 
@@ -2755,19 +2971,21 @@ CK_RV C_GetMechanismList(CK_SLOT_ID slotID,
     if (!slot_valid(slotID)) { rv = CKR_SLOT_ID_INVALID; goto cleanup; }
     if (pulCount == NULL_PTR) { rv = CKR_ARGUMENTS_BAD; goto cleanup; }
 
+    slot_mechs(slotID, &mechs, &n);
+
     if (pMechanismList == NULL_PTR) {
-        *pulCount = NUM_MECHS;
+        *pulCount = n;
         goto cleanup;
     }
 
-    if (*pulCount < NUM_MECHS) {
-        *pulCount = NUM_MECHS;
+    if (*pulCount < n) {
+        *pulCount = n;
         rv = CKR_BUFFER_TOO_SMALL;
         goto cleanup;
     }
 
-    memcpy(pMechanismList, g_mechs, sizeof(g_mechs));
-    *pulCount = NUM_MECHS;
+    memcpy(pMechanismList, mechs, n * sizeof(CK_MECHANISM_TYPE));
+    *pulCount = n;
 
 cleanup:
     WP11_UNLOCK();
@@ -2778,12 +2996,22 @@ CK_RV C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type,
                            CK_MECHANISM_INFO_PTR pInfo)
 {
     CK_RV rv = CKR_OK;
+    const CK_MECHANISM_TYPE *mechs;
+    CK_ULONG n, i;
+    int found;
 
     WP11_LOCK(CKR_CRYPTOKI_NOT_INITIALIZED);
 
     if (!g_initialized) { rv = CKR_CRYPTOKI_NOT_INITIALIZED; goto cleanup; }
     if (!slot_valid(slotID)) { rv = CKR_SLOT_ID_INVALID; goto cleanup; }
     if (pInfo == NULL_PTR) { rv = CKR_ARGUMENTS_BAD; goto cleanup; }
+
+    slot_mechs(slotID, &mechs, &n);
+    found = 0;
+    for (i = 0; i < n; i++) {
+        if (mechs[i] == type) { found = 1; break; }
+    }
+    if (!found) { rv = CKR_MECHANISM_INVALID; goto cleanup; }
 
     memset(pInfo, 0, sizeof(*pInfo));
 
@@ -2792,6 +3020,16 @@ CK_RV C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type,
         pInfo->ulMinKeySize = 1024;
         pInfo->ulMaxKeySize = 4096;
         pInfo->flags = CKF_SIGN | CKF_DECRYPT;
+        break;
+    case CKM_RSA_PKCS_OAEP:
+        pInfo->ulMinKeySize = 1024;
+        pInfo->ulMaxKeySize = 4096;
+        pInfo->flags = CKF_ENCRYPT | CKF_DECRYPT;
+        break;
+    case CKM_RSA_PKCS_PSS:
+        pInfo->ulMinKeySize = 1024;
+        pInfo->ulMaxKeySize = 4096;
+        pInfo->flags = CKF_SIGN | CKF_VERIFY;
         break;
     case CKM_ECDSA:
         pInfo->ulMinKeySize = 256;
@@ -2807,6 +3045,15 @@ CK_RV C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type,
         pInfo->ulMinKeySize = 256;
         pInfo->ulMaxKeySize = 384;
         pInfo->flags = CKF_DERIVE;
+        break;
+    case CKM_EDDSA:
+        /* Ed25519: fixed 255-bit key (reported as 255 per PKCS#11 3.0 sec 2.3.9).
+         * wolfP11-rstk: CKF_VERIFY is required; C_VerifyInit accepts CKM_EDDSA.
+         * Advertising only CKF_SIGN caused applications that query
+         * GetMechanismInfo before calling C_VerifyInit to skip or fail verify. */
+        pInfo->ulMinKeySize = 255;
+        pInfo->ulMaxKeySize = 255;
+        pInfo->flags = CKF_SIGN | CKF_VERIFY;
         break;
     case CKM_DES_KEY_GEN:
         pInfo->ulMinKeySize = 64;
@@ -2837,6 +3084,11 @@ CK_RV C_GetMechanismInfo(CK_SLOT_ID slotID, CK_MECHANISM_TYPE type,
         break;
     case CKM_AES_ECB:
     case CKM_AES_CBC:
+        pInfo->ulMinKeySize = 128;
+        pInfo->ulMaxKeySize = 256;
+        pInfo->flags = CKF_ENCRYPT | CKF_DECRYPT;
+        break;
+    case CKM_AES_GCM:
         pInfo->ulMinKeySize = 128;
         pInfo->ulMaxKeySize = 256;
         pInfo->flags = CKF_ENCRYPT | CKF_DECRYPT;
@@ -3965,6 +4217,26 @@ CK_RV C_Logout(CK_SESSION_HANDLE hSession)
             } else {
                 g_sessions[i].state = CKS_RO_PUBLIC_SESSION;
             }
+            /* wolfP11-4isd: clear all crypto operation state. Key objects
+             * were freed above; leaving *_active=1 with a stale *_key
+             * handle would let C_Sign/C_Verify/etc. operate after re-login
+             * with a dangling reference. Clear flags and key handles now so
+             * the next login starts from a known-clean state. The embedded
+             * wolfCrypt contexts (dec_ctx, enc_ctx, dig_ctx) are value types
+             * with no external allocations; they are re-initialised by the
+             * corresponding wc_Init* call at the next C_*Init. */
+            g_sessions[i].sign_active     = 0;
+            g_sessions[i].sign_key        = 0;
+            g_sessions[i].verify_active   = 0;
+            g_sessions[i].verify_key      = 0;
+            g_sessions[i].encrypt_active  = 0;
+            g_sessions[i].encrypt_key     = 0;
+            g_sessions[i].decrypt_active  = 0;
+            g_sessions[i].decrypt_key     = 0;
+            g_sessions[i].digest_active   = 0;
+            g_sessions[i].find_active     = 0;
+            g_sessions[i].find_pos        = 0;
+            g_sessions[i].find_tmpl_count = 0;
         }
     }
 
@@ -4442,6 +4714,40 @@ CK_RV C_DestroyObject(CK_SESSION_HANDLE hSession, CK_OBJECT_HANDLE hObject)
 
     obj->in_use = 0;
 
+    /* wolfP11-9k4p: after marking the key deleted, scan all sessions and
+     * clear any operation state that holds a reference to hObject.  Without
+     * this, a session that called C_SignInit on the now-deleted key will have
+     * sign_active=1 and sign_key=hObject.  The next C_Sign correctly fails
+     * (key_get returns NULL), but sign_active=1 causes the subsequent
+     * C_SignInit on that session to return CKR_OPERATION_ACTIVE -- a stale
+     * flag making the session unusable.  Clearing it here under g_lock is
+     * safe because all C_* operations hold g_lock for their full duration.
+     * wolfP11-hjep: all four operation types (sign, verify, encrypt, decrypt)
+     * must be cleared; omitting encrypt_active/encrypt_key left encrypt ops
+     * pointing at a freed key handle. */
+    {
+        int si;
+        for (si = 0; si < MAX_SESSIONS; si++) {
+            if (!g_sessions[si].in_use) continue;
+            if (g_sessions[si].sign_key == hObject) {
+                g_sessions[si].sign_active = 0;
+                g_sessions[si].sign_key    = 0;
+            }
+            if (g_sessions[si].verify_key == hObject) {
+                g_sessions[si].verify_active = 0;
+                g_sessions[si].verify_key    = 0;
+            }
+            if (g_sessions[si].encrypt_key == hObject) {
+                g_sessions[si].encrypt_active = 0;
+                g_sessions[si].encrypt_key    = 0;
+            }
+            if (g_sessions[si].decrypt_key == hObject) {
+                g_sessions[si].decrypt_active = 0;
+                g_sessions[si].decrypt_key    = 0;
+            }
+        }
+    }
+
 cleanup:
     WP11_UNLOCK();
     return rv;
@@ -4482,20 +4788,23 @@ CK_RV C_GetAttributeValue(CK_SESSION_HANDLE hSession,
      * silently misinterpret "attribute not found" as "attribute returned". */
     CK_RV rv   = CKR_OK;
     CK_RV worst = CKR_OK;
+    wp11_session_t *s;
     wp11_key_obj_t *obj;
     CK_ULONG i;
 
     WP11_LOCK(CKR_CRYPTOKI_NOT_INITIALIZED);
 
     if (!g_initialized) { rv = CKR_CRYPTOKI_NOT_INITIALIZED; goto cleanup; }
-    if (session_get(hSession) == NULL) {
-        rv = CKR_SESSION_HANDLE_INVALID;
-        goto cleanup;
-    }
+    s = session_get(hSession);
+    if (s == NULL) { rv = CKR_SESSION_HANDLE_INVALID; goto cleanup; }
     if (pTemplate == NULL_PTR) { rv = CKR_ARGUMENTS_BAD; goto cleanup; }
 
     obj = key_get(hObject);
     if (obj == NULL) { rv = CKR_OBJECT_HANDLE_INVALID; goto cleanup; }
+    /* wolfP11-pqow: object handles are slot-scoped per PKCS#11 2.40 sec.11.7.
+     * A session on slot N must not query attributes of an object on slot M.
+     * C_DestroyObject already enforces this (see line 4623); we must too. */
+    if (obj->slot_id != s->slot_id) { rv = CKR_OBJECT_HANDLE_INVALID; goto cleanup; }
 
 /* Update the 'worst' error tracker for C_GetAttributeValue.
  * Priority (highest first): TYPE_INVALID > ATTRIBUTE_SENSITIVE > BUFFER_TOO_SMALL > OK */
@@ -4827,6 +5136,12 @@ CK_RV C_FindObjectsInit(CK_SESSION_HANDLE hSession,
     s = session_get(hSession);
     if (s == NULL) { rv = CKR_SESSION_HANDLE_INVALID; goto cleanup; }
 
+    /* wolfP11-69lz: PKCS#11 2.40 sec.11.9 requires CKR_OPERATION_ACTIVE
+     * when a find is already active on this session.  Without this check
+     * a second C_FindObjectsInit silently overwrites find_pos without
+     * resetting the template, leaving inconsistent search state. */
+    if (s->find_active) { rv = CKR_OPERATION_ACTIVE; goto cleanup; }
+
     /* Validate and deep-copy the template before activating find. */
     if (pTemplate != NULL_PTR && ulCount > 0u) {
         if (ulCount > FIND_TMPL_MAX_ATTRS) {
@@ -4951,6 +5266,105 @@ CK_RV C_EncryptInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
         rv = validate_mechanism_params(pMechanism);
         if (rv != CKR_OK) goto cleanup;
         /* no symmetric context setup needed -- RSA encrypt is oneshot via key_priv */
+        s->encrypt_active    = 1;
+        s->encrypt_oneshot   = 0;
+        s->encrypt_multipart = 0;
+        s->encrypt_mech      = pMechanism->mechanism;
+        s->encrypt_key       = hKey;
+        goto cleanup;
+    }
+
+    if (pMechanism->mechanism == CKM_RSA_PKCS_OAEP) {
+        /* RSA-OAEP (PKCS#1 v2.1) public-key encryption.
+         * Parse CK_RSA_PKCS_OAEP_PARAMS and store in session for C_Encrypt. */
+        const CK_RSA_PKCS_OAEP_PARAMS *op;
+        int hash_type, wc_mgf;
+
+        if (obj->key_type != CKK_RSA) { rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup; }
+        if (pMechanism->pParameter == NULL_PTR ||
+            pMechanism->ulParameterLen < sizeof(CK_RSA_PKCS_OAEP_PARAMS)) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        op        = (const CK_RSA_PKCS_OAEP_PARAMS *)pMechanism->pParameter;
+        hash_type = ck_hash_to_wc(op->hashAlg);
+        wc_mgf    = ck_mgf_to_wc(op->mgf);
+        if (hash_type == 0 || wc_mgf < 0) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        if (op->ulSourceDataLen > WP11_OAEP_LABEL_MAX) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        s->oaep_enc_hash_type = hash_type;
+        s->oaep_enc_mgf       = wc_mgf;
+        s->oaep_enc_label_len = 0;
+        if (op->pSourceData != NULL && op->ulSourceDataLen > 0) {
+            memcpy(s->oaep_enc_label, op->pSourceData, op->ulSourceDataLen);
+            s->oaep_enc_label_len = (word32)op->ulSourceDataLen;
+        }
+        s->encrypt_active    = 1;
+        s->encrypt_oneshot   = 0;
+        s->encrypt_multipart = 0;
+        s->encrypt_mech      = pMechanism->mechanism;
+        s->encrypt_key       = hKey;
+        goto cleanup;
+    }
+
+    if (pMechanism->mechanism == CKM_AES_GCM) {
+        /* AES-GCM authenticated encryption.
+         * Uses CK_GCM_PARAMS (iv_ptr/iv_len/aad_ptr/aad_len/tag_bits).
+         * The IV and AAD are copied into the session at init time so the
+         * caller's pMechanism->pParameter pointer need not remain valid. */
+        const CK_GCM_PARAMS *gp;
+
+        if (obj->key_type != CKK_AES) { rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup; }
+        if (obj->secret == NULL || obj->secret_len == 0) {
+            rv = CKR_KEY_HANDLE_INVALID; goto cleanup;
+        }
+        if (pMechanism->pParameter == NULL_PTR ||
+            pMechanism->ulParameterLen < sizeof(CK_GCM_PARAMS)) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+
+        gp = (const CK_GCM_PARAMS *)pMechanism->pParameter;
+
+        /* Validate IV: must be non-NULL, non-zero length, at most WP11_GCM_IV_MAX */
+        /* p11-kit/pkcs11.h #define's snake_case aliases (iv_ptr, iv_len, ...)
+         * to CamelCase names (pIv, ulIvLen, ...) inside the header, then
+         * #undef's them.  After the include we must use the CamelCase names. */
+        if (gp->pIv == NULL || gp->ulIvLen == 0 ||
+            gp->ulIvLen > WP11_GCM_IV_MAX) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        /* Validate tag bits: 32, 64, 96, 104, 112, 120, or 128 (per PKCS#11 2.40 2.16.3) */
+        if (gp->ulTagBits == 0 || gp->ulTagBits > 128u ||
+            (gp->ulTagBits % 8u) != 0u || gp->ulTagBits < 32u) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        /* Validate AAD length */
+        if (gp->ulAADLen > WP11_GCM_AAD_MAX) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        if (gp->ulAADLen > 0 && gp->pAAD == NULL) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+
+        /* Init AES context for GCM */
+        wc_AesInit(&s->enc_ctx.aes, NULL, INVALID_DEVID);
+        if (wc_AesGcmSetKey(&s->enc_ctx.aes, obj->secret,
+                             (word32)obj->secret_len) != 0) {
+            wc_AesFree(&s->enc_ctx.aes);
+            rv = CKR_KEY_SIZE_RANGE; goto cleanup;
+        }
+
+        /* Copy IV and AAD into session (caller's pointer need not persist) */
+        memcpy(s->gcm_enc_iv, gp->pIv, gp->ulIvLen);
+        s->gcm_enc_iv_len  = gp->ulIvLen;
+        if (gp->ulAADLen > 0) {
+            memcpy(s->gcm_enc_aad, gp->pAAD, gp->ulAADLen);
+        }
+        s->gcm_enc_aad_len  = gp->ulAADLen;
+        s->gcm_enc_tag_bits = gp->ulTagBits;
+
         s->encrypt_active    = 1;
         s->encrypt_oneshot   = 0;
         s->encrypt_multipart = 0;
@@ -5110,6 +5524,151 @@ CK_RV C_Encrypt(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
             goto cleanup;
         }
         *pulEncryptedDataLen = (CK_ULONG)outw;
+        s->encrypt_active    = 0;
+        s->encrypt_oneshot   = 0;
+        s->encrypt_multipart = 0;
+        goto cleanup;
+    }
+
+    /* RSA-OAEP one-shot encrypt.
+     * OAEP uses wp11_soft_key_rsa_oaep_encrypt which requires a wp11_soft_key_t.
+     * The backend dispatch table (ops->decrypt/encrypt) does not have an OAEP
+     * entry; OAEP is handled here directly because it requires wolfCrypt-specific
+     * padding that is not exposed through the generic backend interface.
+     * key_priv ownership is backend-specific (wolfP11-be5): soft backend stores
+     * a wp11_soft_key_t*; flash/fsdir backends store a wp11_key_entry_t*.
+     * Detect the backend and create a temporary soft key when needed. */
+    if (s->encrypt_mech == CKM_RSA_PKCS_OAEP) {
+        wp11_key_obj_t  *eobj     = key_get(s->encrypt_key);
+        wp11_soft_key_t *skey;
+        wp11_soft_key_t *tmp_skey = NULL; /* non-NULL when we created it temporarily */
+        word32           outw;
+
+        if (eobj == NULL || eobj->key_priv == NULL) {
+            s->encrypt_active = 0;
+            rv = CKR_KEY_HANDLE_INVALID;
+            goto cleanup;
+        }
+
+        if (eobj->backend_ops == &wp11_backend_soft_ops) {
+            /* Soft backend: key_priv is already a wp11_soft_key_t* */
+            skey = (wp11_soft_key_t *)eobj->key_priv;
+        } else {
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+            /* Keystore backends (flash / fsdir) store key_priv as
+             * wp11_key_entry_t* (wolfP11-be5).  USB and wolfHSM backends
+             * also satisfy (backend_ops != soft), so we must check the
+             * backend pointer explicitly before casting -- otherwise a USB
+             * key in a build that includes a keystore backend would have its
+             * wp11_usb_key_priv_t* cast as wp11_key_entry_t*, reading garbage
+             * DER pointer fields and crashing in wp11_soft_key_new_from_der. */
+            const int is_ks =
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+                (eobj->backend_ops == &wp11_backend_flash_ops) ? 1 :
+#endif
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+                (eobj->backend_ops == &wp11_backend_fsdir_ops) ? 1 :
+#endif
+                0;
+            if (is_ks) {
+                const wp11_key_entry_t *e = (const wp11_key_entry_t *)eobj->key_priv;
+                tmp_skey = wp11_soft_key_new_from_der(e->der_bytes, e->der_len,
+                                                       e->key_type);
+                if (tmp_skey == NULL) {
+                    s->encrypt_active = 0;
+                    rv = CKR_DEVICE_MEMORY;
+                    goto cleanup;
+                }
+                skey = tmp_skey;
+            } else {
+                /* USB/wolfHSM: OAEP requires raw key material that is not
+                 * accessible on hardware tokens.  Reject rather than crash. */
+                s->encrypt_active = 0;
+                rv = CKR_MECHANISM_INVALID;
+                goto cleanup;
+            }
+#else
+            /* No keystore backend compiled: only USB and wolfHSM are non-soft.
+             * Neither exposes key material for software OAEP.  Reject. */
+            s->encrypt_active = 0;
+            rv = CKR_MECHANISM_INVALID;
+            goto cleanup;
+#endif
+        }
+
+        if (pEncryptedData == NULL_PTR) {
+            /* Size query: return modulus size */
+            outw = 0;
+            if (wp11_soft_key_rsa_oaep_encrypt(skey, NULL, 0, NULL, &outw,
+                                                s->oaep_enc_hash_type,
+                                                s->oaep_enc_mgf, NULL, 0) != 0) {
+                s->encrypt_active = 0;
+                wp11_soft_key_free(tmp_skey);
+                rv = CKR_FUNCTION_FAILED;
+                goto cleanup;
+            }
+            *pulEncryptedDataLen = (CK_ULONG)outw;
+            s->encrypt_oneshot = 1;
+            wp11_soft_key_free(tmp_skey);
+            goto cleanup;
+        }
+
+        outw = (word32)*pulEncryptedDataLen;
+        if (wp11_soft_key_rsa_oaep_encrypt(skey,
+                pData, (word32)ulDataLen, pEncryptedData, &outw,
+                s->oaep_enc_hash_type, s->oaep_enc_mgf,
+                s->oaep_enc_label_len > 0 ? s->oaep_enc_label : NULL,
+                s->oaep_enc_label_len) != 0) {
+            s->encrypt_active = 0;
+            wp11_soft_key_free(tmp_skey);
+            rv = CKR_FUNCTION_FAILED;
+            goto cleanup;
+        }
+        wp11_soft_key_free(tmp_skey);
+        *pulEncryptedDataLen = (CK_ULONG)outw;
+        s->encrypt_active    = 0;
+        s->encrypt_oneshot   = 0;
+        s->encrypt_multipart = 0;
+        goto cleanup;
+    }
+
+    /* AES-GCM one-shot encrypt: output is ciphertext || auth_tag */
+    if (s->encrypt_mech == CKM_AES_GCM) {
+        CK_ULONG taglen        = s->gcm_enc_tag_bits / 8u;
+        CK_ULONG outlen_needed = ulDataLen + taglen;
+        int      wret;
+
+        if (pEncryptedData == NULL_PTR) {
+            /* Size query: report ciphertext + tag */
+            *pulEncryptedDataLen = outlen_needed;
+            s->encrypt_oneshot = 1;
+            goto cleanup;
+        }
+        if (*pulEncryptedDataLen < outlen_needed) {
+            *pulEncryptedDataLen = outlen_needed;
+            rv = CKR_BUFFER_TOO_SMALL;
+            goto cleanup;
+        }
+        /* Guard size_t-to-word32 narrowing */
+        if (ulDataLen > (CK_ULONG)UINT32_MAX || taglen > (CK_ULONG)UINT32_MAX ||
+            s->gcm_enc_iv_len > WP11_GCM_IV_MAX) {
+            rv = CKR_DATA_LEN_RANGE;
+            s->encrypt_active = 0;
+            goto cleanup;
+        }
+
+        wret = wc_AesGcmEncrypt(&s->enc_ctx.aes,
+                                 pEncryptedData, pData, (word32)ulDataLen,
+                                 s->gcm_enc_iv,  (word32)s->gcm_enc_iv_len,
+                                 pEncryptedData + ulDataLen, (word32)taglen,
+                                 s->gcm_enc_aad_len > 0u ? s->gcm_enc_aad : NULL,
+                                 (word32)s->gcm_enc_aad_len);
+        if (wret != 0) {
+            rv = CKR_FUNCTION_FAILED;
+            s->encrypt_active = 0;
+            goto cleanup;
+        }
+        *pulEncryptedDataLen = outlen_needed;
         s->encrypt_active    = 0;
         s->encrypt_oneshot   = 0;
         s->encrypt_multipart = 0;
@@ -5405,6 +5964,46 @@ CK_RV C_DecryptInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
                                     ? (const uint8_t *)pMechanism->pParameter
                                     : NULL;
                 switch (pMechanism->mechanism) {
+                case CKM_AES_GCM:
+                {
+                    /* AES-GCM authenticated decryption.
+                     * Parse CK_GCM_PARAMS and set the GCM key. */
+                    const CK_GCM_PARAMS *gp;
+
+                    if (pMechanism->pParameter == NULL_PTR ||
+                        pMechanism->ulParameterLen < sizeof(CK_GCM_PARAMS)) {
+                        rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+                    }
+                    gp = (const CK_GCM_PARAMS *)pMechanism->pParameter;
+                    if (gp->pIv == NULL || gp->ulIvLen == 0 ||
+                        gp->ulIvLen > WP11_GCM_IV_MAX) {
+                        rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+                    }
+                    if (gp->ulTagBits == 0 || gp->ulTagBits > 128u ||
+                        (gp->ulTagBits % 8u) != 0u || gp->ulTagBits < 32u) {
+                        rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+                    }
+                    if (gp->ulAADLen > WP11_GCM_AAD_MAX) {
+                        rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+                    }
+                    if (gp->ulAADLen > 0 && gp->pAAD == NULL) {
+                        rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+                    }
+                    wc_AesInit(&s->dec_ctx.aes, NULL, INVALID_DEVID);
+                    if (wc_AesGcmSetKey(&s->dec_ctx.aes, obj->secret,
+                                         (word32)obj->secret_len) != 0) {
+                        wc_AesFree(&s->dec_ctx.aes);
+                        rv = CKR_KEY_SIZE_RANGE; goto cleanup;
+                    }
+                    memcpy(s->gcm_dec_iv, gp->pIv, gp->ulIvLen);
+                    s->gcm_dec_iv_len  = gp->ulIvLen;
+                    if (gp->ulAADLen > 0) {
+                        memcpy(s->gcm_dec_aad, gp->pAAD, gp->ulAADLen);
+                    }
+                    s->gcm_dec_aad_len  = gp->ulAADLen;
+                    s->gcm_dec_tag_bits = gp->ulTagBits;
+                    break;
+                }
                 case CKM_AES_ECB:
                     wc_AesInit(&s->dec_ctx.aes, NULL, INVALID_DEVID);
                     if (wc_AesSetKey(&s->dec_ctx.aes, obj->secret,
@@ -5446,6 +6045,32 @@ CK_RV C_DecryptInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
             if (obj->key_type != CKK_RSA) { rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup; }
             rv = validate_mechanism_params(pMechanism);
             if (rv != CKR_OK) goto cleanup;
+        } else if (pMechanism->mechanism == CKM_RSA_PKCS_OAEP) {
+            /* RSA-OAEP path: parse CK_RSA_PKCS_OAEP_PARAMS, store in session */
+            const CK_RSA_PKCS_OAEP_PARAMS *op;
+            int hash_type, wc_mgf;
+
+            if (obj->key_type != CKK_RSA) { rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup; }
+            if (pMechanism->pParameter == NULL_PTR ||
+                pMechanism->ulParameterLen < sizeof(CK_RSA_PKCS_OAEP_PARAMS)) {
+                rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+            }
+            op        = (const CK_RSA_PKCS_OAEP_PARAMS *)pMechanism->pParameter;
+            hash_type = ck_hash_to_wc(op->hashAlg);
+            wc_mgf    = ck_mgf_to_wc(op->mgf);
+            if (hash_type == 0 || wc_mgf < 0) {
+                rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+            }
+            if (op->ulSourceDataLen > WP11_OAEP_LABEL_MAX) {
+                rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+            }
+            s->oaep_dec_hash_type = hash_type;
+            s->oaep_dec_mgf       = wc_mgf;
+            s->oaep_dec_label_len = 0;
+            if (op->pSourceData != NULL && op->ulSourceDataLen > 0) {
+                memcpy(s->oaep_dec_label, op->pSourceData, op->ulSourceDataLen);
+                s->oaep_dec_label_len = (word32)op->ulSourceDataLen;
+            }
         } else {
             /* Check key-type inconsistency for known mechanisms */
             if (pMechanism->mechanism == CKM_ECDSA ||
@@ -5514,6 +6139,165 @@ CK_RV C_Decrypt(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pEncryptedData,
         goto cleanup;
     }
 
+    /* RSA-OAEP one-shot decrypt: must be before the generic size query because
+     * OAEP output is smaller than the input (ciphertext = modulus size).
+     * Like C_Encrypt OAEP, this path calls wp11_soft_key_rsa_oaep_decrypt
+     * directly rather than going through the backend dispatch table; see the
+     * C_Encrypt OAEP comment above for the rationale.  key_priv ownership
+     * is backend-specific (wolfP11-be5), so we check the backend type before
+     * casting key_priv. */
+    if (s->decrypt_mech == CKM_RSA_PKCS_OAEP) {
+        wp11_key_obj_t  *dobj = key_get(s->decrypt_key);
+        wp11_soft_key_t *skey;
+        wp11_soft_key_t *tmp_skey = NULL; /* non-NULL when we created it temporarily */
+        word32           outw;
+
+        if (dobj == NULL || dobj->key_priv == NULL) {
+            s->decrypt_active = 0;
+            rv = CKR_KEY_HANDLE_INVALID;
+            goto cleanup;
+        }
+
+        if (dobj->backend_ops == &wp11_backend_soft_ops) {
+            /* Soft backend: key_priv is already a wp11_soft_key_t* */
+            skey = (wp11_soft_key_t *)dobj->key_priv;
+        } else {
+#if defined(WOLFP11_CFG_USB_FLASH_BACKEND) || defined(WOLFP11_CFG_FSDIR_BACKEND)
+            /* Same backend-narrowing logic as C_Encrypt OAEP: must check the
+             * exact backend pointer before casting key_priv.  A USB key in a
+             * keystore-enabled build would otherwise have its
+             * wp11_usb_key_priv_t* cast as wp11_key_entry_t*, reading garbage
+             * DER pointer fields and crashing. */
+            const int is_ks =
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+                (dobj->backend_ops == &wp11_backend_flash_ops) ? 1 :
+#endif
+#ifdef WOLFP11_CFG_FSDIR_BACKEND
+                (dobj->backend_ops == &wp11_backend_fsdir_ops) ? 1 :
+#endif
+                0;
+            if (is_ks) {
+                const wp11_key_entry_t *e = (const wp11_key_entry_t *)dobj->key_priv;
+                tmp_skey = wp11_soft_key_new_from_der(e->der_bytes, e->der_len,
+                                                       e->key_type);
+                if (tmp_skey == NULL) {
+                    s->decrypt_active = 0;
+                    rv = CKR_DEVICE_MEMORY;
+                    goto cleanup;
+                }
+                skey = tmp_skey;
+            } else {
+                /* USB/wolfHSM: OAEP requires raw key material not accessible
+                 * on hardware tokens.  Reject rather than crash. */
+                s->decrypt_active = 0;
+                rv = CKR_MECHANISM_INVALID;
+                goto cleanup;
+            }
+#else
+            /* No keystore backend compiled: reject non-soft backends. */
+            s->decrypt_active = 0;
+            rv = CKR_MECHANISM_INVALID;
+            goto cleanup;
+#endif
+        }
+
+        if (pData == NULL_PTR) {
+            /* Size query: return modulus size as worst-case plaintext length */
+            outw = 0;
+            if (wp11_soft_key_rsa_oaep_decrypt(skey, NULL, 0, NULL, 0, &outw,
+                                                s->oaep_dec_hash_type,
+                                                s->oaep_dec_mgf, NULL, 0) != 0) {
+                s->decrypt_active = 0;
+                wp11_soft_key_free(tmp_skey);
+                rv = CKR_FUNCTION_FAILED;
+                goto cleanup;
+            }
+            *pulDataLen = (CK_ULONG)outw;
+            s->decrypt_oneshot = 1;
+            wp11_soft_key_free(tmp_skey);
+            goto cleanup;
+        }
+
+        if (ulEncryptedDataLen > (CK_ULONG)UINT32_MAX ||
+            *pulDataLen > (CK_ULONG)UINT32_MAX) {
+            rv = CKR_ENCRYPTED_DATA_LEN_RANGE;
+            s->decrypt_active = 0;
+            wp11_soft_key_free(tmp_skey);
+            goto cleanup;
+        }
+        outw = (word32)*pulDataLen;
+        if (wp11_soft_key_rsa_oaep_decrypt(skey,
+                pEncryptedData, (word32)ulEncryptedDataLen,
+                pData, outw, &outw,
+                s->oaep_dec_hash_type, s->oaep_dec_mgf,
+                s->oaep_dec_label_len > 0 ? s->oaep_dec_label : NULL,
+                s->oaep_dec_label_len) != 0) {
+            rv = CKR_ENCRYPTED_DATA_INVALID;
+            s->decrypt_active = 0;
+            wp11_soft_key_free(tmp_skey);
+            goto cleanup;
+        }
+        wp11_soft_key_free(tmp_skey);
+        *pulDataLen          = (CK_ULONG)outw;
+        s->decrypt_active    = 0;
+        s->decrypt_oneshot   = 0;
+        s->decrypt_multipart = 0;
+        goto cleanup;
+    }
+
+    /* AES-GCM one-shot decrypt: input is ciphertext || auth_tag.
+     * Must be before the generic pData==NULL size query because GCM output
+     * is input_len - taglen, not input_len. */
+    if (s->decrypt_mech == CKM_AES_GCM) {
+        CK_ULONG taglen = s->gcm_dec_tag_bits / 8u;
+        CK_ULONG pt_len;
+        int      wret;
+
+        if (ulEncryptedDataLen < taglen) {
+            rv = CKR_ENCRYPTED_DATA_LEN_RANGE;
+            s->decrypt_active = 0;
+            goto cleanup;
+        }
+        pt_len = ulEncryptedDataLen - taglen;
+
+        if (pData == NULL_PTR) {
+            /* Size query */
+            *pulDataLen = pt_len;
+            s->decrypt_oneshot = 1;
+            goto cleanup;
+        }
+        if (*pulDataLen < pt_len) {
+            *pulDataLen = pt_len;
+            rv = CKR_BUFFER_TOO_SMALL;
+            goto cleanup;
+        }
+        if (ulEncryptedDataLen > (CK_ULONG)UINT32_MAX || taglen > (CK_ULONG)UINT32_MAX) {
+            rv = CKR_ENCRYPTED_DATA_LEN_RANGE;
+            s->decrypt_active = 0;
+            goto cleanup;
+        }
+
+        /* wc_AesGcmDecrypt: returns 0 on success (auth + decrypt);
+         * non-zero means authentication failed (tampered ciphertext or tag). */
+        wret = wc_AesGcmDecrypt(&s->dec_ctx.aes,
+                                 pData,                                        /* out */
+                                 pEncryptedData,          (word32)pt_len,      /* in, sz */
+                                 s->gcm_dec_iv,           (word32)s->gcm_dec_iv_len,
+                                 pEncryptedData + pt_len, (word32)taglen,
+                                 s->gcm_dec_aad_len > 0u ? s->gcm_dec_aad : NULL,
+                                 (word32)s->gcm_dec_aad_len);
+        if (wret != 0) {
+            rv = CKR_ENCRYPTED_DATA_INVALID;
+            s->decrypt_active = 0;
+            goto cleanup;
+        }
+        *pulDataLen          = pt_len;
+        s->decrypt_active    = 0;
+        s->decrypt_oneshot   = 0;
+        s->decrypt_multipart = 0;
+        goto cleanup;
+    }
+
     if (pData == NULL_PTR) {
         /* Size query: return required length without advancing state */
         *pulDataLen = ulEncryptedDataLen;
@@ -5577,7 +6361,28 @@ CK_RV C_Decrypt(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pEncryptedData,
         s->decrypt_multipart = 0;
     } else {
         /* Asymmetric path (RSA) -- dispatch through backend ops */
+        /* wolfP11-3i67: PKCS#11 2.40 s11.13 requires CKR_BUFFER_TOO_SMALL
+         * when pData is non-NULL but the buffer is too small for the
+         * plaintext.  For RSA, the plaintext is at most modulus_size bytes;
+         * sig_len_max equals modulus_size for RSA keys (wolfP11-3qf), so
+         * reuse it here.  The decrypt operation remains active on
+         * CKR_BUFFER_TOO_SMALL (consistent with the symmetric path) so the
+         * caller can retry with a larger buffer. */
+        if (obj->sig_len_max != WP11_SIG_LEN_UNKNOWN &&
+            *pulDataLen < obj->sig_len_max) {
+            *pulDataLen = obj->sig_len_max;
+            rv = CKR_BUFFER_TOO_SMALL;
+            goto cleanup;
+        }
         outlen = (size_t)*pulDataLen;
+
+        /* wolfP11-izdd: backend_ops->decrypt must never be NULL (documented
+         * in wp11_backend.h).  Check here so a misconfigured backend gets a
+         * clean CKR_FUNCTION_FAILED rather than a NULL dereference crash. */
+        if (obj->backend_ops == NULL || obj->backend_ops->decrypt == NULL) {
+            rv = CKR_FUNCTION_FAILED;
+            goto cleanup;
+        }
 
         memset(&kh, 0, sizeof(kh));
         kh.backend = obj->backend_ops->type;
@@ -6034,6 +6839,10 @@ CK_RV C_SignInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
     s = session_get(hSession);
     if (s == NULL) { rv = CKR_SESSION_HANDLE_INVALID; goto cleanup; }
 
+    /* Reject double-init: PKCS#11 spec requires CKR_OPERATION_ACTIVE if a
+     * sign operation is already in progress on this session. */
+    if (s->sign_active) { rv = CKR_OPERATION_ACTIVE; goto cleanup; }
+
     obj = key_get(hKey);
     if (obj == NULL) { rv = CKR_KEY_HANDLE_INVALID; goto cleanup; }
     if (obj->obj_class == CKO_CERTIFICATE) { rv = CKR_KEY_HANDLE_INVALID; goto cleanup; }
@@ -6046,9 +6855,37 @@ CK_RV C_SignInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
     /* Check that mechanism is valid for signing */
     if (pMechanism->mechanism == CKM_RSA_PKCS ||
         pMechanism->mechanism == CKM_ECDSA ||
-        pMechanism->mechanism == CKM_ECDSA_SHA256) {
+        pMechanism->mechanism == CKM_ECDSA_SHA256 ||
+        pMechanism->mechanism == CKM_EDDSA) {
         rv = validate_mechanism_params(pMechanism);
         if (rv != CKR_OK) goto cleanup;
+    } else if (pMechanism->mechanism == CKM_RSA_PKCS_PSS) {
+        /* RSA-PSS path: parse CK_RSA_PKCS_PSS_PARAMS, store in session */
+        const CK_RSA_PKCS_PSS_PARAMS *pp;
+        int hash_type, wc_mgf;
+
+        if (obj->key_type != CKK_RSA) { rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup; }
+        if (pMechanism->pParameter == NULL_PTR ||
+            pMechanism->ulParameterLen < sizeof(CK_RSA_PKCS_PSS_PARAMS)) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        pp        = (const CK_RSA_PKCS_PSS_PARAMS *)pMechanism->pParameter;
+        hash_type = ck_hash_to_wc(pp->hashAlg);
+        wc_mgf    = ck_mgf_to_wc(pp->mgf);
+        if (hash_type == 0 || wc_mgf < 0) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        s->pss_sign_hash_type = hash_type;
+        s->pss_sign_mgf       = wc_mgf;
+        /* sLen=0 is documented in PKCS#11 2.40 §2.1.8 as "use the default
+         * salt length for the hash algorithm" (i.e. sLen == hLen).  wolfCrypt
+         * encodes this intent as RSA_PSS_SALT_LEN_DEFAULT (-1): passing 0
+         * literally would create a zero-byte salt, which is a distinct and
+         * less-common mode.  Map sLen=0 here so the caller never has to know
+         * this wolfCrypt encoding detail. */
+        s->pss_sign_salt_len  = (pp->sLen == 0u)
+                                ? RSA_PSS_SALT_LEN_DEFAULT
+                                : (int)pp->sLen;
     } else if (mech_hmac_type(pMechanism->mechanism) >= 0) {
         /* HMAC mechanism: key must be a generic secret */
         if (obj->key_type != CKK_GENERIC_SECRET &&
@@ -6070,7 +6907,9 @@ CK_RV C_SignInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
     s->sign_key    = hKey;
 
 cleanup:
-    if (rv != CKR_OK && s != NULL)
+    /* CKR_OPERATION_ACTIVE means the existing operation stays in place;
+     * do not clear sign_active. Any other failure clears it. */
+    if (rv != CKR_OK && rv != CKR_OPERATION_ACTIVE && s != NULL)
         s->sign_active = 0;
     WP11_UNLOCK();
     return rv;
@@ -6169,10 +7008,60 @@ CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         goto cleanup;
     }
 
+    /* wolfP11-3i67: PKCS#11 2.40 s11.11 requires CKR_BUFFER_TOO_SMALL when
+     * pSignature is non-NULL but *pulSignatureLen is too small for the
+     * signature.  sig_len_max is the mechanism-correct maximum stored at
+     * key-load time (wolfP11-3qf).  When unknown (WP11_SIG_LEN_UNKNOWN),
+     * skip the pre-check; wolfCrypt will refuse to write past the buffer
+     * but the caller receives CKR_FUNCTION_FAILED instead of
+     * CKR_BUFFER_TOO_SMALL for that edge case. */
+    if (obj->sig_len_max != WP11_SIG_LEN_UNKNOWN &&
+        *pulSignatureLen < obj->sig_len_max) {
+        *pulSignatureLen = obj->sig_len_max;
+        rv = CKR_BUFFER_TOO_SMALL;
+        goto cleanup;
+    }
+
     siglen = (size_t)*pulSignatureLen;
 
+#ifdef WC_RSA_PSS
+    /* RSA-PSS sign: bypass backend_ops; call soft-key directly with PSS params.
+     * wolfP11-tvk4: guard both CK_ULONG inputs before casting to word32.
+     * The AES-GCM path has an equivalent UINT32_MAX check; PSS must match it.
+     * A caller supplying >4 GB data on a 64-bit host would silently truncate
+     * to a wrong length, corrupting the hash and producing a bogus signature. */
+    if (s->sign_mech == CKM_RSA_PKCS_PSS) {
+        word32 sl = (word32)siglen;
+        int    rc;
+        if (obj->key_type != CKK_RSA || obj->key_priv == NULL) {
+            s->sign_active = 0;
+            rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup;
+        }
+        if (!WP11_FITS_U32(ulDataLen) || !WP11_FITS_U32(siglen)) {
+            s->sign_active = 0;
+            rv = CKR_DATA_LEN_RANGE; goto cleanup;
+        }
+        rc = wp11_soft_key_rsa_pss_sign((wp11_soft_key_t *)obj->key_priv,
+                                         pData, (word32)ulDataLen,
+                                         pSignature, &sl,
+                                         s->pss_sign_hash_type,
+                                         s->pss_sign_mgf,
+                                         s->pss_sign_salt_len);
+        s->sign_active = 0;
+        if (rc != 0) { rv = CKR_FUNCTION_FAILED; goto cleanup; }
+        *pulSignatureLen = (CK_ULONG)sl;
+        goto cleanup;
+    }
+#endif /* WC_RSA_PSS */
+
     /* wolfP11-be5: dispatch through the ops table; no backend-specific ifdefs. */
-    if (obj->backend_ops == NULL) { rv = CKR_FUNCTION_FAILED; goto cleanup; }
+    /* wolfP11-izdd: also check sign pointer -- must never be NULL per
+     * wp11_backend.h contract.  Guard converts a NULL dereference into
+     * a clean CKR_FUNCTION_FAILED. */
+    if (obj->backend_ops == NULL || obj->backend_ops->sign == NULL) {
+        rv = CKR_FUNCTION_FAILED;
+        goto cleanup;
+    }
 
     memset(&kh, 0, sizeof(kh));
     kh.backend = obj->backend_ops->type;
@@ -6246,6 +7135,10 @@ CK_RV C_VerifyInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
     s = session_get(hSession);
     if (s == NULL) { rv = CKR_SESSION_HANDLE_INVALID; goto cleanup; }
 
+    /* Reject double-init: PKCS#11 spec requires CKR_OPERATION_ACTIVE if a
+     * verify operation is already in progress on this session. */
+    if (s->verify_active) { rv = CKR_OPERATION_ACTIVE; goto cleanup; }
+
     obj = key_get(hKey);
     if (obj == NULL) { rv = CKR_KEY_HANDLE_INVALID; goto cleanup; }
     if (obj->obj_class == CKO_CERTIFICATE) { rv = CKR_KEY_HANDLE_INVALID; goto cleanup; }
@@ -6257,9 +7150,34 @@ CK_RV C_VerifyInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
 
     if (pMechanism->mechanism == CKM_RSA_PKCS ||
         pMechanism->mechanism == CKM_ECDSA ||
-        pMechanism->mechanism == CKM_ECDSA_SHA256) {
+        pMechanism->mechanism == CKM_ECDSA_SHA256 ||
+        pMechanism->mechanism == CKM_EDDSA) {
         rv = validate_mechanism_params(pMechanism);
         if (rv != CKR_OK) goto cleanup;
+    } else if (pMechanism->mechanism == CKM_RSA_PKCS_PSS) {
+        /* RSA-PSS path: parse CK_RSA_PKCS_PSS_PARAMS, store in session */
+        const CK_RSA_PKCS_PSS_PARAMS *pp;
+        int hash_type, wc_mgf;
+
+        if (obj->key_type != CKK_RSA) { rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup; }
+        if (pMechanism->pParameter == NULL_PTR ||
+            pMechanism->ulParameterLen < sizeof(CK_RSA_PKCS_PSS_PARAMS)) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        pp        = (const CK_RSA_PKCS_PSS_PARAMS *)pMechanism->pParameter;
+        hash_type = ck_hash_to_wc(pp->hashAlg);
+        wc_mgf    = ck_mgf_to_wc(pp->mgf);
+        if (hash_type == 0 || wc_mgf < 0) {
+            rv = CKR_MECHANISM_PARAM_INVALID; goto cleanup;
+        }
+        s->pss_verify_hash_type = hash_type;
+        s->pss_verify_mgf       = wc_mgf;
+        /* Same sLen=0 → RSA_PSS_SALT_LEN_DEFAULT mapping as C_SignInit:
+         * sLen=0 per PKCS#11 means "hash-length salt"; wolfCrypt encodes
+         * that intent as -1, not 0 (0 would mean zero-byte salt). */
+        s->pss_verify_salt_len  = (pp->sLen == 0u)
+                                  ? RSA_PSS_SALT_LEN_DEFAULT
+                                  : (int)pp->sLen;
     } else if (mech_hmac_type(pMechanism->mechanism) >= 0) {
         if (obj->key_type != CKK_GENERIC_SECRET &&
             obj->obj_class != CKO_SECRET_KEY) {
@@ -6280,7 +7198,9 @@ CK_RV C_VerifyInit(CK_SESSION_HANDLE hSession, CK_MECHANISM_PTR pMechanism,
     s->verify_key    = hKey;
 
 cleanup:
-    if (rv != CKR_OK && s != NULL)
+    /* CKR_OPERATION_ACTIVE means the existing operation stays in place;
+     * do not clear verify_active. Any other failure clears it. */
+    if (rv != CKR_OK && rv != CKR_OPERATION_ACTIVE && s != NULL)
         s->verify_active = 0;
     WP11_UNLOCK();
     return rv;
@@ -6340,6 +7260,11 @@ CK_RV C_Verify(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
             goto cleanup;
         }
 
+        /* wolfP11-b4sc: same z3c7 invariant as C_Sign above -- zero the
+         * Hmac struct before wc_HmacInit so wc_HmacFree does not chase
+         * garbage pointers from an uninitialised field.  C_Sign had this;
+         * C_Verify was missing it. */
+        memset(&hmac, 0, sizeof(hmac));
         wc_HmacInit(&hmac, NULL, INVALID_DEVID);
         ret = wc_HmacSetKey(&hmac, mech_hmac_type(s->verify_mech),
                             obj->secret, (word32)obj->secret_len);
@@ -6382,8 +7307,38 @@ CK_RV C_Verify(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData,
         goto cleanup;
     }
 
+#ifdef WC_RSA_PSS
+    /* RSA-PSS verify: bypass backend_ops; call soft-key directly with PSS params.
+     * wolfP11-tvk4: guard CK_ULONG inputs before casting to word32. */
+    if (s->verify_mech == CKM_RSA_PKCS_PSS) {
+        int rc;
+        if (obj->key_type != CKK_RSA || obj->key_priv == NULL) {
+            s->verify_active = 0;
+            rv = CKR_KEY_TYPE_INCONSISTENT; goto cleanup;
+        }
+        if (!WP11_FITS_U32(ulSignatureLen) || !WP11_FITS_U32(ulDataLen)) {
+            s->verify_active = 0;
+            rv = CKR_DATA_LEN_RANGE; goto cleanup;
+        }
+        rc = wp11_soft_key_rsa_pss_verify((wp11_soft_key_t *)obj->key_priv,
+                                           pSignature, (word32)ulSignatureLen,
+                                           pData, (word32)ulDataLen,
+                                           s->pss_verify_hash_type,
+                                           s->pss_verify_mgf,
+                                           s->pss_verify_salt_len);
+        s->verify_active = 0;
+        if (rc != 0) { rv = CKR_SIGNATURE_INVALID; goto cleanup; }
+        goto cleanup;
+    }
+#endif /* WC_RSA_PSS */
+
     /* wolfP11-be5: dispatch through the ops table; no backend-specific ifdefs. */
-    if (obj->backend_ops == NULL) { rv = CKR_FUNCTION_FAILED; goto cleanup; }
+    /* wolfP11-izdd: also check verify pointer -- must never be NULL per
+     * wp11_backend.h contract. */
+    if (obj->backend_ops == NULL || obj->backend_ops->verify == NULL) {
+        rv = CKR_FUNCTION_FAILED;
+        goto cleanup;
+    }
 
     memset(&kh, 0, sizeof(kh));
     kh.backend = obj->backend_ops->type;
@@ -6644,6 +7599,7 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
     const char      *label = "";
     CK_BBOOL         key_is_priv = CK_TRUE; /* CKA_PRIVATE default per spec */
     CK_ULONG         modulus_bits = 2048;   /* RSA default modulus size */
+    int              use_p384 = 0;          /* 0 = P-256 (default), 1 = P-384 */
 
     WP11_LOCK(CKR_CRYPTOKI_NOT_INITIALIZED);
 
@@ -6662,13 +7618,38 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
     s = session_get(hSession);
     if (s == NULL) { rv = CKR_SESSION_HANDLE_INVALID; goto cleanup; }
 
-    /* Parse CKA_MODULUS_BITS from the public key template (RSA only). */
+    /* Parse CKA_MODULUS_BITS (RSA) and CKA_EC_PARAMS (ECC) from the public
+     * key template.  CKA_EC_PARAMS is the DER-encoded OID of the named curve.
+     * Only P-256 and P-384 are supported; any other OID returns
+     * CKR_ATTRIBUTE_VALUE_INVALID. */
     if (pPublicKeyTemplate != NULL) {
+        /* P-256 OID: 1.2.840.10045.3.1.7 (DER-encoded named curve) */
+        static const uint8_t oid_p256[] = {
+            0x06,0x08,0x2a,0x86,0x48,0xce,0x3d,0x03,0x01,0x07
+        };
+        /* P-384 OID: 1.3.132.0.34 */
+        static const uint8_t oid_p384[] = {
+            0x06,0x05,0x2b,0x81,0x04,0x00,0x22
+        };
         for (i = 0; i < ulPublicKeyAttributeCount; i++) {
             if (pPublicKeyTemplate[i].type == CKA_MODULUS_BITS &&
                 pPublicKeyTemplate[i].pValue != NULL &&
                 pPublicKeyTemplate[i].ulValueLen == sizeof(CK_ULONG)) {
                 modulus_bits = *(const CK_ULONG *)pPublicKeyTemplate[i].pValue;
+            }
+            if (pPublicKeyTemplate[i].type == CKA_EC_PARAMS &&
+                pPublicKeyTemplate[i].pValue != NULL) {
+                const uint8_t *p    = (const uint8_t *)pPublicKeyTemplate[i].pValue;
+                CK_ULONG       plen = pPublicKeyTemplate[i].ulValueLen;
+                if (plen == sizeof(oid_p384) &&
+                    memcmp(p, oid_p384, sizeof(oid_p384)) == 0) {
+                    use_p384 = 1;
+                } else if (plen == sizeof(oid_p256) &&
+                           memcmp(p, oid_p256, sizeof(oid_p256)) == 0) {
+                    use_p384 = 0;
+                } else {
+                    rv = CKR_ATTRIBUTE_VALUE_INVALID; goto cleanup;
+                }
             }
         }
     }
@@ -6806,10 +7787,15 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
         kp->piv_alg = piv_alg;
         if (piv_alg == WP11_PIV_ALG_EC_P256) {
             g_keys[ki_existing].key_type    = CKK_EC;
-            g_keys[ki_existing].sig_len_max = 72u;   /* P-256 DER ECDSA max */
+            g_keys[ki_existing].sig_len_max = 72u;   /* P-256 DER ECDSA tight max (8+2*32) */
         } else if (piv_alg == WP11_PIV_ALG_EC_P384) {
             g_keys[ki_existing].key_type    = CKK_EC;
-            g_keys[ki_existing].sig_len_max = 105u;  /* P-384 DER ECDSA max */
+            /* 105 = 104 (tight bound via 8+2*48) + 1 byte slack.  Both are
+             * correct upper bounds; ks_key_sig_len_max() returns the tight 104
+             * for keystore-loaded P-384 keys.  Using 105 here is intentional:
+             * a one-byte over-estimate is harmless for hardware slots where the
+             * actual algorithm is confirmed at GENERAL AUTHENTICATE time. */
+            g_keys[ki_existing].sig_len_max = 105u;
         } else {
             g_keys[ki_existing].key_type    = CKK_RSA;
             g_keys[ki_existing].sig_len_max = 256u;  /* RSA-2048 sig = 256 bytes */
@@ -6905,6 +7891,16 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
             (void)wh_Client_KeyEvict(hctx, key_id);
             rv = CKR_DEVICE_MEMORY; goto cleanup;
         }
+        /* wolfP11-t368: only the private-key side owns the eviction.
+         * Both kp_pub and kp_priv share the same key_id.  If both had
+         * generated_here=1, destroying both objects would call
+         * wh_Client_KeyEvict twice on the same key_id -- the second call
+         * is wrong and may return an error that is silently swallowed.
+         * Assigning ownership to kp_priv is natural: the private key is the
+         * one that cannot be recreated, so it is the authoritative owner of
+         * the server-side cache slot. */
+        kp_pub->generated_here  = 0;
+        kp_priv->generated_here = 1;
 
         /* Public key slot */
         g_keys[gi_pub].in_use      = 1;
@@ -6951,7 +7947,8 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
         rv = CKR_FUNCTION_NOT_SUPPORTED; goto cleanup;
     }
     if (pMechanism->mechanism != CKM_EC_KEY_PAIR_GEN &&
-        pMechanism->mechanism != CKM_RSA_PKCS_KEY_PAIR_GEN) {
+        pMechanism->mechanism != CKM_RSA_PKCS_KEY_PAIR_GEN &&
+        pMechanism->mechanism != CKM_EC_EDWARDS_KEY_PAIR_GEN) {
         rv = CKR_MECHANISM_INVALID; goto cleanup;
     }
 
@@ -6971,6 +7968,10 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
 
     if (pMechanism->mechanism == CKM_RSA_PKCS_KEY_PAIR_GEN) {
         sk = wp11_soft_key_new_rsa((int)modulus_bits);
+    } else if (pMechanism->mechanism == CKM_EC_EDWARDS_KEY_PAIR_GEN) {
+        sk = wp11_soft_key_new_ed25519();
+    } else if (use_p384) {
+        sk = wp11_soft_key_new_ecc_p384();
     } else {
         sk = wp11_soft_key_new_ecc_p256();
     }
@@ -6982,14 +7983,20 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
     g_keys[gi_pub].obj_class   = CKO_PUBLIC_KEY;
     g_keys[gi_pub].is_private  = CK_FALSE;
     g_keys[gi_pub].is_token    = CK_TRUE;
+    g_keys[gi_pub].is_local    = CK_TRUE;
     g_keys[gi_pub].key_priv    = wp11_soft_key_ref(sk);
     g_keys[gi_pub].backend_ops = &wp11_backend_soft_ops;
     if (pMechanism->mechanism == CKM_RSA_PKCS_KEY_PAIR_GEN) {
         g_keys[gi_pub].key_type    = CKK_RSA;
         g_keys[gi_pub].sig_len_max = (CK_ULONG)(modulus_bits / 8u);
+    } else if (pMechanism->mechanism == CKM_EC_EDWARDS_KEY_PAIR_GEN) {
+        g_keys[gi_pub].key_type    = (CK_KEY_TYPE)CKK_EC_EDWARDS;
+        g_keys[gi_pub].sig_len_max = 64u; /* Ed25519 signature is always exactly 64 bytes */
     } else {
         g_keys[gi_pub].key_type    = CKK_EC;
-        g_keys[gi_pub].sig_len_max = 72u;
+        /* P-256: 72 bytes max; P-384: 104 bytes max
+         * (SEQUENCE + 2*INTEGER(tag+len+48+1_leading_zero)) */
+        g_keys[gi_pub].sig_len_max = use_p384 ? 104u : 72u;
     }
     strncpy(g_keys[gi_pub].label, label, sizeof(g_keys[gi_pub].label) - 1u);
     g_keys[gi_pub].label[sizeof(g_keys[gi_pub].label) - 1u] = '\0';
@@ -7000,15 +8007,19 @@ CK_RV C_GenerateKeyPair(CK_SESSION_HANDLE hSession,
     g_keys[gi].obj_class   = CKO_PRIVATE_KEY;
     g_keys[gi].is_private  = key_is_priv;
     g_keys[gi].is_token    = CK_TRUE;
+    g_keys[gi].is_local    = CK_TRUE;
     g_keys[gi].key_priv    = sk;
     g_keys[gi].backend_ops = &wp11_backend_soft_ops;
     if (pMechanism->mechanism == CKM_RSA_PKCS_KEY_PAIR_GEN) {
         g_keys[gi].key_type    = CKK_RSA;
         g_keys[gi].sig_len_max = (CK_ULONG)(modulus_bits / 8u);
+    } else if (pMechanism->mechanism == CKM_EC_EDWARDS_KEY_PAIR_GEN) {
+        g_keys[gi].key_type    = (CK_KEY_TYPE)CKK_EC_EDWARDS;
+        g_keys[gi].sig_len_max = 64u; /* Ed25519 signature is always exactly 64 bytes */
     } else {
         g_keys[gi].key_type    = CKK_EC;
-        /* P-256 DER ECDSA max: SEQUENCE(2) + 2 x INTEGER(2 + 32 + 1) = 72 */
-        g_keys[gi].sig_len_max = 72u;
+        /* P-256: 72 bytes max; P-384: 104 bytes max */
+        g_keys[gi].sig_len_max = use_p384 ? 104u : 72u;
     }
     strncpy(g_keys[gi].label, label, sizeof(g_keys[gi].label) - 1u);
     g_keys[gi].label[sizeof(g_keys[gi].label) - 1u] = '\0';
@@ -7461,6 +8472,94 @@ int wp11_test_soft_export_pub_x963(CK_OBJECT_HANDLE hKey,
     rc = wp11_soft_key_test_export_pub_x963((wp11_soft_key_t *)obj->key_priv,
                                               out, &wlen);
     *outlen = (CK_ULONG)wlen;
+    WP11_UNLOCK();
+    return rc;
+}
+
+/* -------------------------------------------------------------------------
+ * wp11_test_soft_export_ed25519_pub -- export Ed25519 public key for test oracle
+ *
+ * Acquires g_lock, looks up the soft-token key object, and delegates to
+ * wp11_soft_key_test_export_ed25519_pub.  Returns 0 on success, -1 on error.
+ * Uses CK_ULONG for outlen to avoid word32 in the test file.
+ * ---------------------------------------------------------------------- */
+int wp11_test_soft_export_ed25519_pub(CK_OBJECT_HANDLE hKey,
+                                       uint8_t *out, CK_ULONG *outlen)
+{
+    wp11_key_obj_t *obj;
+    word32          wlen;
+    int             rc;
+
+    if (out == NULL || outlen == NULL) return -1;
+
+    WP11_LOCK(-1);
+
+    obj = key_get(hKey);
+    if (obj == NULL || obj->key_priv == NULL ||
+        obj->backend_ops != &wp11_backend_soft_ops) {
+        WP11_UNLOCK();
+        return -1;
+    }
+
+    wlen = (word32)*outlen;
+    rc = wp11_soft_key_test_export_ed25519_pub((wp11_soft_key_t *)obj->key_priv,
+                                                out, &wlen);
+    *outlen = (CK_ULONG)wlen;
+    WP11_UNLOCK();
+    return rc;
+}
+
+/* wp11_test_soft_rsa_oaep_decrypt -- direct OAEP decrypt oracle for tests
+ *
+ * Bypasses the PKCS#11 session machinery and calls wp11_soft_key_rsa_oaep_decrypt
+ * directly on the key associated with hKey.  Used as the independent oracle in
+ * test_soft_rsa_oaep Part B: C_Encrypt generates the ciphertext; this function
+ * verifies the ciphertext can be decrypted back to the original plaintext by
+ * calling wc_RsaPrivateDecrypt_ex through the soft-key layer. */
+int wp11_test_soft_rsa_oaep_decrypt(CK_OBJECT_HANDLE hKey,
+                                     const uint8_t *ct, word32 ctlen,
+                                     uint8_t *pt, word32 ptbuflen, word32 *ptlen,
+                                     int hash_type, int mgf)
+{
+    wp11_key_obj_t *obj;
+    int rc;
+
+    WP11_LOCK(-1);
+    if (!g_initialized) { WP11_UNLOCK(); return -1; }
+
+    obj = key_get(hKey);
+    if (obj == NULL || obj->key_priv == NULL || obj->key_type != CKK_RSA) {
+        WP11_UNLOCK();
+        return -1;
+    }
+    rc = wp11_soft_key_rsa_oaep_decrypt((wp11_soft_key_t *)obj->key_priv,
+                                         ct, ctlen, pt, ptbuflen, ptlen,
+                                         hash_type, mgf, NULL, 0);
+    WP11_UNLOCK();
+    return rc;
+}
+
+/* wp11_test_soft_rsa_export_priv_der -- export the private key DER for oracle use.
+ * RSA keys: PKCS#1 / RFC 3447 DER.  buf must be at least 2350 bytes.
+ * Returns bytes written on success, negative on error.
+ * Intended only for building oracle private keys in PSS and OAEP tests.
+ * This function MUST NOT be called from production code paths. */
+int wp11_test_soft_rsa_export_priv_der(CK_OBJECT_HANDLE hKey,
+                                        uint8_t *buf, word32 buflen)
+{
+    wp11_key_obj_t *obj;
+    int rc;
+
+    WP11_LOCK(-1);
+    if (!g_initialized) { WP11_UNLOCK(); return -1; }
+
+    obj = key_get(hKey);
+    if (obj == NULL || obj->key_priv == NULL || obj->key_type != CKK_RSA) {
+        WP11_UNLOCK();
+        return -1;
+    }
+    rc = wp11_soft_key_test_export_priv_der((wp11_soft_key_t *)obj->key_priv,
+                                             buf, buflen);
     WP11_UNLOCK();
     return rc;
 }

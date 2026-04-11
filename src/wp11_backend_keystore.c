@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_backend_keystore.c -- shared sign/verify/decrypt for keystore backends
  *
  * Both the USB flash (WOLFP11_CFG_USB_FLASH_BACKEND) and filesystem-directory
@@ -14,7 +35,9 @@
  * after use, avoiding the need for a mutex around a global RNG.
  */
 
+#ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200112L
+#endif
 
 #include "wolfp11/wp11_backend.h"
 #include "wolfp11/wp11_keystore.h"
@@ -100,9 +123,14 @@ int wp11_ks_sign(const wp11_key_handle_t *handle,
             return -1;
         }
 
-        /* size_t -> word32 casts: RSA-4096 inputs/outputs are at most 512 bytes;
-         * SHA-256 hash inputs are 32 bytes; both are far below UINT32_MAX.
-         * WP11_KEYSTORE_DER_MAX = 4096 caps the DER key size. */
+        /* Guard size_t->word32 narrowing before passing to wolfCrypt.
+         * RSA-4096 data is at most 512 bytes so these cannot fire in normal
+         * use, but the guard is required for correctness under any caller. */
+        if (!WP11_FITS_U32(inlen) || !WP11_FITS_U32(*siglen)) {
+            wc_FreeRsaKey(&rsa);
+            wc_FreeRng(&rng);
+            return -1;
+        }
         ret = wc_RsaSSL_Sign(in, (word32)inlen,
                               sig, (word32)*siglen,
                               &rsa, &rng);
@@ -128,6 +156,16 @@ int wp11_ks_sign(const wp11_key_handle_t *handle,
         ret = wc_EccPrivateKeyDecode(entry->der_bytes, &idx, &ecc,
                                      (word32)entry->der_len);
         if (ret != 0) {
+            wc_ecc_free(&ecc);
+            wc_FreeRng(&rng);
+            return -1;
+        }
+
+        /* Guard all size_t->word32 narrowing casts in this block: inlen is
+         * passed to wc_Sha256Update and wc_ecc_sign_hash; *siglen is used as
+         * the output buffer length (wlen).  P-256/P-384 values are tiny but
+         * a hostile caller could pass SIZE_MAX. */
+        if (!WP11_FITS_U32(inlen) || !WP11_FITS_U32(*siglen)) {
             wc_ecc_free(&ecc);
             wc_FreeRng(&rng);
             return -1;
@@ -219,6 +257,7 @@ int wp11_ks_verify(const wp11_key_handle_t *handle,
                                      (word32)entry->der_len);
         if (ret != 0) { wc_FreeRsaKey(&rsa); return -1; }
 
+        if (!WP11_FITS_U32(siglen)) { wc_FreeRsaKey(&rsa); return -1; }
         ret = wc_RsaSSL_Verify(sig, (word32)siglen, out, outlen, &rsa);
         wc_FreeRsaKey(&rsa);
         if (ret < 0) return -1;
@@ -239,6 +278,13 @@ int wp11_ks_verify(const wp11_key_handle_t *handle,
         ret = wc_EccPrivateKeyDecode(entry->der_bytes, &idx, &ecc,
                                      (word32)entry->der_len);
         if (ret != 0) { wc_ecc_free(&ecc); return -1; }
+
+        /* Guard size_t->word32 narrowing for inlen (Sha256Update, ecc_verify_hash)
+         * and siglen (ecc_verify_hash). */
+        if (!WP11_FITS_U32(inlen) || !WP11_FITS_U32(siglen)) {
+            wc_ecc_free(&ecc);
+            return -1;
+        }
 
         if (mechanism == KS_CKM_ECDSA_SHA256) {
             wc_Sha256 sha;
@@ -324,9 +370,14 @@ int wp11_ks_decrypt(const wp11_key_handle_t *handle,
             return -1;
         }
 
-        /* size_t -> word32 cast: RSA-4096 ciphertext is 512 bytes max;
-         * plaintext is always smaller than the modulus.
-         * WP11_KEYSTORE_DER_MAX = 4096 caps the key size. */
+        /* Guard size_t->word32 narrowing before passing to wolfCrypt.
+         * RSA-4096 ciphertext is at most 512 bytes so these cannot fire in
+         * normal use, but the guard is required for correctness under any caller. */
+        if (!WP11_FITS_U32(ctlen) || !WP11_FITS_U32(*ptlen)) {
+            wc_FreeRsaKey(&rsa);
+            wc_FreeRng(&rng);
+            return -1;
+        }
         ret = wc_RsaPrivateDecrypt(ct, (word32)ctlen,
                                    pt, (word32)*ptlen,
                                    &rsa);

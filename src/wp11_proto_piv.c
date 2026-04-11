@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_proto_piv.c -- wolfP11 PIV protocol implementation
  *
  * Implements NIST SP 800-73-4 PIV applet APDU sequences over CCID transport.
@@ -190,7 +211,19 @@ static void piv_get_sw(const uint8_t *resp, size_t resplen,
  * piv_sw_to_err -- map ISO 7816 / SP 800-73-4 SW codes to typed error values
  *
  * SP 800-73-4 sec.3.2.4, ISO 7816-4 sec.5.1.3.
- * Called for any non-9000 SW that is not handled inline (e.g., 63 Cx, 6A 82).
+ * Called for any non-9000 SW that is not handled inline (e.g., 6A 81, 6A 88).
+ * NOTE: SW 63 Cx (wrong PIN, retry counter) is handled INLINE in
+ * wp11_piv_verify_pin() and never reaches this function.  SW 61 xx (more data)
+ * is handled inline in the GET RESPONSE chaining loop.  Do not list either
+ * in the "handled codes" section below -- they are processed before this
+ * function is called and piv_sw_to_err will never see those bytes.
+ *
+ * Handled codes (return specific error):
+ *   69 85  -- conditions of use not satisfied (user presence / touch required)
+ *   69 82  -- security status not satisfied (PIN not verified)
+ *   6A 81  -- function not supported (wrong algorithm or unsupported slot)
+ *   6A 88  -- reference data not found (key slot is empty)
+ * All other SWs return WP11_PIV_ERR_SW (caller may log sw1/sw2 for diagnosis).
  * ---------------------------------------------------------------------- */
 static int piv_sw_to_err(uint8_t sw1, uint8_t sw2)
 {
@@ -274,6 +307,12 @@ int wp11_piv_select(wp11_ccid_ctx_t *ccid)
                 ber_len_decode(resp + pos, body_len - pos,
                                &skip_len, &skip_consumed) == 0) {
                 pos += skip_consumed;
+                /* wolfP11-hlag: ber_len_decode guarantees skip_consumed <=
+                 * (body_len - pos_before_advance), so pos <= body_len here.
+                 * Clamp defensively so a future refactor cannot push pos past
+                 * the boundary and have the while condition silently mask it. */
+                if (pos > body_len)
+                    pos = body_len;
             }
         }
         /* Linear scan for tag 0x84 (DF name) */
@@ -905,7 +944,13 @@ int wp11_piv_generate_key(wp11_ccid_ctx_t *ccid,
     data_end = resplen - 2u;
     i = 0u;
 
-    /* Parse outer 7F 49 constructed tag (2-byte BER tag, sec.SP 800-73-4 Table 7) */
+    /* wolfP11-u8rv: 7F 49 is a two-byte BER-TLV tag per ISO 7816-4 sec.5.2.2.
+     * 0x7F = Application class (bits 7-6 = 01), Constructed (bit 5 = 1),
+     * multi-byte tag indicator (bits 4-0 = 11111).  The subsequent byte 0x49
+     * (= 73 decimal) is the tag number.  SP 800-73-4 Table 7 uses tag 73 for
+     * the public key data object returned by GENERATE ASYMMETRIC KEY PAIR.
+     * tlv_expect() handles only 1-byte tags; this two-byte form is parsed
+     * inline here. */
     if (i + 2u > data_end ||
         resp[i] != 0x7Fu || resp[i + 1u] != 0x49u) {
         return WP11_PIV_ERR_ENCODING;

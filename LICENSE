@@ -1,0 +1,34 @@
+wolfP11
+Copyright (C) 2026 wolfSSL Inc.
+
+OPEN SOURCE LICENSE
+
+wolfP11 is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free
+Software Foundation; either version 3 of the License, or (at your option)
+any later version.
+
+wolfP11 is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+details.
+
+You should have received a copy of the GNU General Public License along
+with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+COMMERCIAL LICENSE
+
+wolfSSL Inc. sells wolfP11 commercial licenses for organizations that need
+to embed wolfP11 in a proprietary product without being bound by the GPL-3.0
+copyleft terms.  A commercial license grants you:
+
+  - The right to distribute wolfP11 in binary form without disclosing
+    source code.
+  - The right to integrate wolfP11 in a proprietary or closed-source product.
+  - Access to wolfSSL Inc. support, maintenance, and NRE services.
+
+To obtain a commercial license, contact wolfSSL Inc.:
+
+  Email:  licensing@wolfssl.com
+  Phone:  +1 (425) 245-8247
+  Web:    https://www.wolfssl.com/contact/

@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_test_openpgp.c -- OpenPGP card protocol APDU tests
  * Reference: OpenPGP card application spec v3.4 (gnupg.org)
  * Test vectors: openpgp_apdu.json derived from spec Sections 7.2.1, 7.2.2, 7.2.6, 7.2.10
@@ -176,6 +197,35 @@ static int test_select_aid_apdu(void)
         && (memcmp(st.apdu, expected, sizeof(expected)) == 0);
 
     return check(pass, "select_aid_apdu");
+}
+
+/* -------------------------------------------------------------------------
+ * wolfP11-zuav: select_aid_file_not_found
+ * Verify wp11_openpgp_select returns WP11_OPENPGP_ERR_SW when the card
+ * replies with SW 0x6A 0x82 (File or application not found -- ISO 7816-4
+ * sec.5.1.3).  This error is returned by tokens that do not implement the
+ * OpenPGP applet; the library must fail cleanly rather than continuing.
+ * ---------------------------------------------------------------------- */
+static int test_select_aid_file_not_found(void)
+{
+    mock_state_t     st;
+    wp11_ccid_ctx_t *ccid;
+    int              rc;
+
+    memset(&st, 0, sizeof(st));
+    /* SW 6A 82: File or application not found (ISO 7816-4 sec.5.1.3) */
+    set_sw_response(&st, 0x6Au, 0x82u);
+
+    ccid = open_mock(&st);
+    if (ccid == NULL) {
+        return check(0, "select_aid_file_not_found: open_mock");
+    }
+
+    rc = wp11_openpgp_select(ccid);
+    wp11_ccid_close(ccid);
+
+    return check(rc == WP11_OPENPGP_ERR_SW,
+                 "select_aid_file_not_found: SW 6A 82 -> WP11_OPENPGP_ERR_SW");
 }
 
 /* -------------------------------------------------------------------------
@@ -614,6 +664,7 @@ int wp11_test_openpgp(void)
 
     failures += test_vector_file_nonempty();
     failures += test_select_aid_apdu();
+    failures += test_select_aid_file_not_found();
     failures += test_verify_pw1_sign_apdu();
     failures += test_verify_pw1_other_apdu();
     failures += test_compute_sig_apdu();

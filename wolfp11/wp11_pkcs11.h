@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_pkcs11.h -- wolfP11 PKCS#11 2.40 public declarations
  *
  * Includes the standard PKCS#11 type definitions from p11-kit and
@@ -14,6 +35,19 @@
 #include <p11-kit/pkcs11.h>
 #include <stdint.h>
 #include <stddef.h>
+
+/* PKCS#11 3.0 EdDSA constants -- not yet in the p11-kit headers we build
+ * against.  Guarded with #ifndef so a future p11-kit update that adds them
+ * does not produce a redefinition error. */
+#ifndef CKM_EC_EDWARDS_KEY_PAIR_GEN
+#define CKM_EC_EDWARDS_KEY_PAIR_GEN  (0x00001055UL)
+#endif
+#ifndef CKK_EC_EDWARDS
+#define CKK_EC_EDWARDS               (0x00000040UL)
+#endif
+#ifndef CKM_EDDSA
+#define CKM_EDDSA                    (0x00001057UL)
+#endif
 
 #ifdef __cplusplus
 extern "C" {

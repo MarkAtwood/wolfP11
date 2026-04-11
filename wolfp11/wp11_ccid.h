@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_ccid.h -- wolfP11 CCID transport API
  *
  * Frames ISO 7816 APDUs in CCID messages over libusb bulk transfers.
@@ -58,7 +79,13 @@ int  wp11_ccid_open_mock(wp11_ccid_transport_fn transport,
  * On success *resplen is set to the number of bytes written to resp.
  * The two ISO 7816 status bytes are always appended: resp[*resplen-2] is SW1,
  * resp[*resplen-1] is SW2.  *resplen is always >= 2 on success.
- * Protocol callers must strip the final two bytes to obtain the data payload. */
+ * Protocol callers must strip the final two bytes to obtain the data payload.
+ *
+ * Thread safety: NOT thread-safe.  The context holds a shared sequence counter
+ * (ctx->seq) with no internal locking.  Concurrent calls on the same context
+ * will corrupt the CCID conversation.  Each context must be used by at most
+ * one thread at a time; use one context per USB device per thread if concurrent
+ * access is required (the device itself serializes CCID transactions). */
 int  wp11_ccid_apdu(wp11_ccid_ctx_t *ctx,
                     const uint8_t   *cmd,  size_t  cmdlen,
                     uint8_t         *resp, size_t *resplen);

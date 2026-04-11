@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_keystore.c -- wolfP11 encrypted keystore implementation
  *
  * .p11k file format (from ~/soft_PKCS11/usb-hsm/src/keystore.rs):
@@ -35,9 +56,11 @@
 #include <sys/mman.h>   /* mlock, munlock */
 #include <sys/stat.h>   /* stat for file size */
 #include <fcntl.h>      /* open, O_RDONLY */
-#include <unistd.h>     /* read, close, write */
+#include <unistd.h>     /* read, close, write, fsync */
 #include <stdlib.h>     /* malloc, free */
 #include <string.h>     /* memcmp, memcpy, memset, strlen */
+#include <stdio.h>      /* rename */
+#include <limits.h>     /* PATH_MAX */
 #include <stdint.h>
 #include <stddef.h>
 #include <errno.h>      /* EINTR */
@@ -102,12 +125,36 @@ static void wp11_zero(void *p, size_t n)
  * We use 512 KB as a safe upper bound. */
 #define WP11_KEYSTORE_MAX_CT_LEN     (512u * 1024u)
 
+/* wolfP11-98ck: Ensure the CBOR DoS guard in cbor_skip (val > MAX_CT_LEN/2)
+ * stays tighter than MAX_ENTRIES. Each map pair needs at least 2 bytes (one
+ * byte key + one byte value), so the maximum legitimate pair count is
+ * MAX_CT_LEN/2. If MAX_ENTRIES is ever raised past that threshold the guard
+ * is no longer a valid bound -- this assert catches that at compile time. */
+_Static_assert(WP11_KEYSTORE_MAX_ENTRIES * 2u <= WP11_KEYSTORE_MAX_CT_LEN / 2u,
+    "raise CBOR DoS pair-count guard if MAX_ENTRIES increases");
+/* wolfP11-52y5: guard that DER_MAX is large enough to hold the largest key
+ * this library claims to support.  RSA-4096 PKCS#1 private key in DER encodes
+ * to at most 2351 bytes (four 513-byte INTEGERs for n/d plus five 261-byte
+ * INTEGERs for p/q/dp/dq/qInv, plus headers); 2370 adds a 19-byte margin.
+ * If DER_MAX is ever shrunk, key import/export silently truncates for RSA-4096
+ * without this check. */
+_Static_assert(WP11_KEYSTORE_DER_MAX >= 2370u,
+    "WP11_KEYSTORE_DER_MAX must be >= 2370 to store RSA-4096 PKCS#1 DER");
+
 /* CBOR major types (top 3 bits of initial byte) */
 #define CBOR_MAJOR_UINT   0u
 #define CBOR_MAJOR_BYTES  2u
 #define CBOR_MAJOR_TEXT   3u
 #define CBOR_MAJOR_ARRAY  4u
 #define CBOR_MAJOR_MAP    5u
+
+/* Maximum recursion depth for cbor_skip.
+ * Our schema is array > map > scalar (depth 2).  We allow 8 to accommodate
+ * forward-compatible nesting while bounding stack use regardless of input:
+ * a crafted 512 KB file with 2-byte-per-level nesting could otherwise push
+ * ~131 000 recursive frames before buffer exhaustion fires.
+ * 8 gives ample headroom for schema evolution (current depth is 2). */
+#define CBOR_SKIP_MAX_DEPTH 8
 
 /* -------------------------------------------------------------------------
  * Opaque keystore struct
@@ -366,10 +413,15 @@ static int cbor_read_bytes_fixed(const uint8_t *buf, size_t buflen, size_t pos,
 }
 
 /* Skip a single CBOR item (any type) -- needed when iterating map keys we
- * encounter but have already matched (allows forward-compatible maps). */
-static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos);
+ * encounter but have already matched (allows forward-compatible maps).
+ *
+ * depth: current recursion depth; callers pass 0.  Recurses for ARRAY and MAP
+ * items.  Capped at CBOR_SKIP_MAX_DEPTH to prevent stack exhaustion from a
+ * crafted file with deeply-nested CBOR (each empty nesting level costs only
+ * 2 bytes, so a 512 KB buffer could otherwise nest ~131 000 levels deep). */
+static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos, int depth);
 
-static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos)
+static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos, int depth)
 {
     uint8_t  major;
     uint64_t val;
@@ -377,14 +429,25 @@ static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos)
     size_t   i;
     int      n;
 
+    /* Schema depth is 2 (array > map > scalar). Cap at CBOR_SKIP_MAX_DEPTH to
+     * allow forward-compatible nesting while bounding stack use regardless of
+     * input. */
+    if (depth > CBOR_SKIP_MAX_DEPTH) {
+        return WP11_KEYSTORE_ERR_CBOR;
+    }
+
     head = cbor_read_head(buf, buflen, pos, &major, &val);
     if (head < 0) {
         return head;
     }
 
     if (major == CBOR_MAJOR_BYTES || major == CBOR_MAJOR_TEXT) {
-        /* Payload bytes follow inline. */
-        if (val > (uint64_t)(buflen - pos - (size_t)head)) {
+        /* Payload bytes follow inline.  Use the same bounds form as
+         * cbor_read_text/cbor_read_bytes_alloc (head + val > buflen - pos)
+         * which requires only pos < buflen -- a one-level invariant from
+         * cbor_read_head success -- rather than the chained subtraction
+         * buflen - pos - head which requires the stronger pos+head <= buflen. */
+        if ((size_t)head + (size_t)val > buflen - pos) {
             return WP11_KEYSTORE_ERR_CBOR;
         }
         return (int)((size_t)head + (size_t)val);
@@ -393,34 +456,28 @@ static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos)
         return head; /* no inline payload */
     }
     else if (major == CBOR_MAJOR_ARRAY) {
-        /* Skip val items. */
+        /* Skip val items.  cur is monotonically increasing and bounded by
+         * buflen: each successful cbor_skip returns n where cur+n<=buflen,
+         * so no overflow check on cur is needed.
+         * Safety of (int)(cur - pos): cur - pos <= buflen <= MAX_CT_LEN =
+         * 512 KB, which is far below INT_MAX (~2 GB).  The cast cannot wrap.
+         * (The old `if (cur < pos)` check that was removed was also a
+         * monotonicity invariant guard; it is guaranteed by cbor_skip's
+         * contract, not by arithmetic wrapping.) */
         size_t cur = pos + (size_t)head;
         for (i = 0; i < (size_t)val; i++) {
-            n = cbor_skip(buf, buflen, cur);
+            n = cbor_skip(buf, buflen, cur, depth + 1);
             if (n < 0) {
                 return n;
             }
             cur += (size_t)n;
         }
-        if (cur < pos) {
-            return WP11_KEYSTORE_ERR_CBOR;
-        }
         return (int)(cur - pos);
     }
     else if (major == CBOR_MAJOR_MAP) {
         /* Skip val key-value pairs (2*val items).
-         *
-         * Guard against (size_t)val * 2u wrapping on 32-bit targets: if val
-         * is large enough that 2*val overflows size_t, the multiplied loop
-         * bound would be silently truncated and we'd skip too few items,
-         * potentially misaligning the parser.  Reject any count that would
-         * overflow SIZE_MAX before the multiply.
-         *
-         * In practice this cannot be reached with a valid .p11k file: the
-         * AES-GCM auth tag protects the CBOR payload, and the plaintext is
-         * capped at WP11_KEYSTORE_MAX_CT_LEN bytes, so a legitimate map can
-         * have at most a few hundred pairs.  The check is here to make the
-         * parser defensible on all targets regardless of those invariants. */
+         * Guard SIZE_MAX/2 overflow before the multiply: a silently wrapped
+         * loop bound would skip too few items and misalign the parser. */
         size_t cur = pos + (size_t)head;
         if (val > (uint64_t)(SIZE_MAX / 2u)) {
             return WP11_KEYSTORE_ERR_CBOR;
@@ -434,15 +491,14 @@ static int cbor_skip(const uint8_t *buf, size_t buflen, size_t pos)
         if ((size_t)val > WP11_KEYSTORE_MAX_CT_LEN / 2u) {
             return WP11_KEYSTORE_ERR_CBOR;
         }
+        /* cur is monotonically increasing and bounded by buflen -- same
+         * invariant as the ARRAY case above. */
         for (i = 0; i < (size_t)val * 2u; i++) {
-            n = cbor_skip(buf, buflen, cur);
+            n = cbor_skip(buf, buflen, cur, depth + 1);
             if (n < 0) {
                 return n;
             }
             cur += (size_t)n;
-        }
-        if (cur < pos) {
-            return WP11_KEYSTORE_ERR_CBOR;
         }
         return (int)(cur - pos);
     }
@@ -685,7 +741,7 @@ static int decode_cbor_payload(const uint8_t    *plain,
             }
             else {
                 /* Unknown key -- skip the value for forward compatibility. */
-                n = cbor_skip(plain, plain_len, pos);
+                n = cbor_skip(plain, plain_len, pos, 0);
                 if (n < 0) {
                     return n;
                 }
@@ -848,10 +904,21 @@ int wp11_keystore_load(const char      *path,
     if (pinlen == 0) {
         return WP11_KEYSTORE_ERR_PARAM;
     }
+    /* wolfP11-b3u0: wc_PBKDF2 takes int for the password length; guard the
+     * size_t -> int narrowing.  A PIN larger than INT_MAX bytes can never
+     * occur legitimately (PKCS#11 2.40 §11.5 caps CKU_USER PIN at the token
+     * maximum, which must fit in CK_ULONG), but an adversarially crafted
+     * caller could trigger UB without this check. */
+    if (pinlen > (size_t)INT_MAX) {
+        return WP11_KEYSTORE_ERR_PARAM;
+    }
     *ks_out = NULL;
 
-    /* Open file and stat for size. */
-    fd = open(path, O_RDONLY);
+    /* Open file and stat for size.
+     * O_NOFOLLOW: refuse to follow a symlink at the keystore path to prevent
+     * an attacker from redirecting the load to a crafted file.  The write
+     * path (wp11_keystore_save) applies the same guard for the same reason. */
+    fd = open(path, O_RDONLY | O_NOFOLLOW);
     if (fd < 0) {
         return WP11_KEYSTORE_ERR_IO;
     }
@@ -1172,6 +1239,9 @@ int wp11_keystore_create(const char             *path,
     int      key_zeroed = 0;
     int      fd         = -1;
     int      wc_rc;
+    /* wolfP11-ikab: temp file for atomic write; see "Write file" below. */
+    char     tmppath[PATH_MAX + 5];
+    int      tmpfile_open = 0;
 
     memset(salt,    0, sizeof(salt));
     memset(nonce,   0, sizeof(nonce));
@@ -1188,6 +1258,10 @@ int wp11_keystore_create(const char             *path,
         return WP11_KEYSTORE_ERR_PARAM;
     }
     if (pinlen == 0 || nkeys > WP11_KEYSTORE_MAX_ENTRIES) {
+        return WP11_KEYSTORE_ERR_PARAM;
+    }
+    /* wolfP11-b3u0: same INT_MAX guard as wp11_keystore_open. */
+    if (pinlen > (size_t)INT_MAX) {
         return WP11_KEYSTORE_ERR_PARAM;
     }
 
@@ -1292,18 +1366,34 @@ int wp11_keystore_create(const char             *path,
     memcpy(hdr + WP11_P11K_OFF_NONCE, nonce, WP11_P11K_NONCE_LEN);
     write_u32be(hdr + WP11_P11K_OFF_CTLEN, (uint32_t)plain_len);
 
-    /* Write file: header, ciphertext, tag. */
+    /* wolfP11-ikab: write to a temporary file then rename(2) to atomically
+     * replace the final path.  Writing directly to the final path via
+     * O_CREAT|O_TRUNC produces a partial file if the process is killed
+     * mid-write; that partial file fails the AES-GCM tag check on the next
+     * load, returning ERR_CRYPTO which is misleading (actual cause is
+     * truncation, not wrong PIN).  rename(2) is atomic on POSIX for files on
+     * the same filesystem; the destination is either the old complete file or
+     * the new complete file, never a partial write. */
+    {
+        size_t pathlen = strlen(path);
+        if (pathlen >= PATH_MAX) {
+            rc = WP11_KEYSTORE_ERR_PARAM;
+            goto cleanup;
+        }
+        memcpy(tmppath, path, pathlen);
+        memcpy(tmppath + pathlen, ".tmp", 5); /* includes NUL */
+    }
+
     /* wolfP11-tb0k: O_NOFOLLOW prevents following a symlink at the final path
-     * component.  Without it, open(O_CREAT|O_TRUNC) follows a symlink and
-     * overwrites the symlink target, which on multi-user systems lets an
-     * attacker redirect key material to an attacker-controlled path.
-     * O_NOFOLLOW fails with ELOOP if path is a symlink; regular files are
-     * unaffected. */
-    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
+     * component (same rationale as the original open).  O_TRUNC overwrites any
+     * stale .tmp left by a prior crash; O_EXCL is intentionally omitted so a
+     * stale temp file from a prior crash does not block the next write. */
+    fd = open(tmppath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
     if (fd < 0) {
         rc = WP11_KEYSTORE_ERR_IO;
         goto cleanup;
     }
+    tmpfile_open = 1;
 
     rc = write_all(fd, hdr, WP11_P11K_HDR_LEN);
     if (rc != WP11_KEYSTORE_OK) {
@@ -1320,11 +1410,36 @@ int wp11_keystore_create(const char             *path,
         goto cleanup;
     }
 
+    /* fsync before rename: ensures the data reaches stable storage before the
+     * directory entry is updated.  Without this, a crash after rename but
+     * before writeback could leave the final path pointing to a zero-filled
+     * page (OS deferred the actual writes).  close() alone is not sufficient. */
+    if (fsync(fd) < 0) {
+        rc = WP11_KEYSTORE_ERR_IO;
+        goto cleanup;
+    }
+
+    close(fd);
+    fd = -1;
+
+    if (rename(tmppath, path) < 0) {
+        rc = WP11_KEYSTORE_ERR_IO;
+        goto cleanup;
+    }
+    /* rename succeeded: the temp file is now the final file; no unlink needed */
+    tmpfile_open = 0;
+
     rc = WP11_KEYSTORE_OK;
 
 cleanup:
     if (fd >= 0) {
         close(fd);
+    }
+    /* Remove the partially-written temp file on any error path.  Best-effort:
+     * the caller already has a non-OK rc, so an unlink failure cannot make
+     * things worse.  On success tmpfile_open was cleared above. */
+    if (tmpfile_open) {
+        (void)unlink(tmppath);
     }
     if (rng_init) {
         wc_FreeRng(&rng);

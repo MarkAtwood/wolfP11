@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_proto_openpgp.c -- OpenPGP card APDU sequences
  * Reference: OpenPGP card application spec v3.4 (https://gnupg.org/ftp/specs/OpenPGP-smart-card-application-3.4.pdf)
  * Sections: 7.2.1 (SELECT), 7.2.2 (VERIFY), 7.2.6 (COMPUTE DIGITAL SIGNATURE),
@@ -21,6 +42,18 @@
 static void extract_sw(const uint8_t *resp, size_t resplen,
                         uint8_t *sw1, uint8_t *sw2)
 {
+    /* wolfP11-ms9a: defensive bounds check inside the function itself.
+     * All current callers check resplen >= 2 before calling, but a future
+     * caller or a copy-paste of this function could omit that guard.  If
+     * resplen < 2 we cannot read a valid SW; return 0x00/0x00 so the caller
+     * sees an unrecognised status word and returns WP11_OPENPGP_ERR_SW rather
+     * than crashing on a size_t underflow read.  Mirrors piv_get_sw() in
+     * wp11_proto_piv.c which has the same defensive check. */
+    if (resplen < 2u) {
+        *sw1 = 0x00u;
+        *sw2 = 0x00u;
+        return;
+    }
     *sw1 = resp[resplen - 2u];
     *sw2 = resp[resplen - 1u];
 }
@@ -173,6 +206,19 @@ int wp11_openpgp_sign(wp11_ccid_ctx_t *ccid,
 
     extract_sw(resp, resplen, &sw1, &sw2);
 
+    /* wolfP11-os9k: ISO 7816-4 sec.5.1.3: SW 6C xx means wrong Le;
+     * retry once with Le=sw2.  PIV handles this identically (see
+     * wp11_proto_piv.c).  Le is the last byte of the command APDU. */
+    if (sw1 == 0x6Cu) {
+        cmd[cmdlen - 1u] = sw2;          /* patch Le in-place */
+        resplen = sizeof(resp);
+        rc = wp11_ccid_apdu(ccid, cmd, cmdlen, resp, &resplen);
+        if (rc != WP11_CCID_OK) return WP11_OPENPGP_ERR_TRANSPORT;
+        if (resplen < 2u)        return WP11_OPENPGP_ERR_TRUNCATED;
+        extract_sw(resp, resplen, &sw1, &sw2);
+        /* If 6C again, fall through to error -- avoid infinite loop */
+    }
+
     if (sw1 != 0x90u || sw2 != 0x00u) {
         return WP11_OPENPGP_ERR_SW;
     }
@@ -232,6 +278,16 @@ int wp11_openpgp_authenticate(wp11_ccid_ctx_t *ccid,
 
     extract_sw(resp, resplen, &sw1, &sw2);
 
+    /* wolfP11-os9k: same 6C retry as wp11_openpgp_sign above. */
+    if (sw1 == 0x6Cu) {
+        cmd[cmdlen - 1u] = sw2;
+        resplen = sizeof(resp);
+        rc = wp11_ccid_apdu(ccid, cmd, cmdlen, resp, &resplen);
+        if (rc != WP11_CCID_OK) return WP11_OPENPGP_ERR_TRANSPORT;
+        if (resplen < 2u)        return WP11_OPENPGP_ERR_TRUNCATED;
+        extract_sw(resp, resplen, &sw1, &sw2);
+    }
+
     if (sw1 != 0x90u || sw2 != 0x00u) {
         return WP11_OPENPGP_ERR_SW;
     }
@@ -282,6 +338,17 @@ int wp11_openpgp_get_ard(wp11_ccid_ctx_t *ccid,
     }
 
     extract_sw(resp, resplen, &sw1, &sw2);
+
+    /* wolfP11-os9k: same 6C retry as wp11_openpgp_sign above.
+     * Le is cmd[4] (the only byte after the 4-byte header). */
+    if (sw1 == 0x6Cu) {
+        cmd[4u] = sw2;
+        resplen = sizeof(resp);
+        rc = wp11_ccid_apdu(ccid, cmd, sizeof(cmd), resp, &resplen);
+        if (rc != WP11_CCID_OK) return WP11_OPENPGP_ERR_TRANSPORT;
+        if (resplen < 2u)        return WP11_OPENPGP_ERR_TRUNCATED;
+        extract_sw(resp, resplen, &sw1, &sw2);
+    }
 
     if (sw1 != 0x90u || sw2 != 0x00u) {
         return WP11_OPENPGP_ERR_SW;

@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_backend_wolfhsm.c -- wolfP11 wolfHSM server backend
  *
  * Routes PKCS#11 sign, verify, decrypt, and ECDH-derive operations to a
@@ -5,14 +26,15 @@
  * the server and referenced by their server-side key ID (whKeyId).
  *
  * Key lifecycle:
- *   - Keys are provisioned on the wolfHSM server out-of-band (e.g., by the
- *     wolfHSM provisioning CLI, or by a previous C_GenerateKeyPair call that
- *     is not yet implemented in this backend).
+ *   - Keys are provisioned on the wolfHSM server either out-of-band (e.g.,
+ *     wolfHSM provisioning CLI) or via C_GenerateKeyPair (which calls
+ *     wh_Client_EccMakeCacheKey / wh_Client_RsaMakeCacheKey).
  *   - wp11_wolfhsm_alloc_key_priv() creates the per-key struct that stores
  *     the server key ID.  It is called by the PKCS#11 layer when setting up
  *     a slot that uses this backend.
  *   - free_key_priv() frees the local struct.  It does NOT evict the key
- *     from the server, because the key is assumed to be NVM-persistent.
+ *     from the server; the key persists until the server evicts it by
+ *     capacity or explicit wh_Client_KeyEvict (see wolfP11-wfhe).
  *
  * RSA padding:
  *   wolfHSM's wh_Client_RsaFunction performs the raw RSA modular
@@ -126,10 +148,14 @@ wp11_wolfhsm_key_priv_t *wp11_wolfhsm_alloc_key_priv(void    *ctx,
     kp = (wp11_wolfhsm_key_priv_t *)malloc(sizeof(*kp));
     if (kp == NULL) return NULL;
 
-    kp->ctx      = ctx;
-    kp->key_id   = key_id;
-    kp->key_type = key_type;
-    kp->key_size = key_size;
+    /* wolfP11-a0oa: stamp magic before any field so hsm_entry() can validate
+     * the struct identity before trusting the void* ctx cast. */
+    kp->magic          = WP11_WOLFHSM_KEY_MAGIC;
+    kp->ctx            = ctx;
+    kp->key_id         = key_id;
+    kp->key_type       = key_type;
+    kp->key_size       = key_size;
+    kp->generated_here = 0;
     return kp;
 }
 
@@ -137,10 +163,17 @@ wp11_wolfhsm_key_priv_t *wp11_wolfhsm_alloc_key_priv(void    *ctx,
  * Internal helper: get and validate key private state
  * ---------------------------------------------------------------------- */
 
+/* wolfP11-a0oa: validate the magic sentinel before trusting the void* cast.
+ * Checks: handle non-NULL, priv non-NULL, magic matches WP11_WOLFHSM_KEY_MAGIC.
+ * Any mismatch returns NULL so callers propagate WP11_BACKEND_ERR_GENERAL
+ * rather than dereferencing a garbage whClientContext*. */
 static const wp11_wolfhsm_key_priv_t *hsm_entry(const wp11_key_handle_t *h)
 {
+    const wp11_wolfhsm_key_priv_t *kp;
     if (h == NULL || h->priv == NULL) return NULL;
-    return (const wp11_wolfhsm_key_priv_t *)h->priv;
+    kp = (const wp11_wolfhsm_key_priv_t *)h->priv;
+    if (kp->magic != WP11_WOLFHSM_KEY_MAGIC) return NULL;
+    return kp;
 }
 
 /* -------------------------------------------------------------------------
@@ -314,6 +347,10 @@ static int hsm_sign(const wp11_key_handle_t *handle,
 
         if (mechanism == HSM_CKM_ECDSA_SHA256) {
             wc_Sha256 sha;
+            /* wc_Sha256Update is a local wolfCrypt call that takes word32.
+             * Guard the cast; the 32-byte digest sent to the HSM is always
+             * within UINT16_MAX so no further guard is needed after hashing. */
+            if (!WP11_FITS_U32(inlen)) { wc_ecc_free(&ecc); return -1; }
             if (wc_InitSha256(&sha) != 0) { wc_ecc_free(&ecc); return -1; }
             ret = wc_Sha256Update(&sha, in, (word32)inlen);
             if (ret == 0) ret = wc_Sha256Final(&sha, digest);
@@ -323,12 +360,12 @@ static int hsm_sign(const wp11_key_handle_t *handle,
             hash_len = WC_SHA256_DIGEST_SIZE;
         } else {
             /* CKM_ECDSA: caller supplies the prehashed digest */
-            if (inlen > (size_t)UINT16_MAX) { wc_ecc_free(&ecc); return -1; }
+            if (!WP11_FITS_U16(inlen)) { wc_ecc_free(&ecc); return -1; }
             hash     = in;
             hash_len = (uint16_t)inlen;
         }
 
-        if (*siglen > (size_t)UINT16_MAX) { wc_ecc_free(&ecc); return -1; }
+        if (!WP11_FITS_U16(*siglen)) { wc_ecc_free(&ecc); return -1; }
         wlen = (uint16_t)*siglen;
         ret  = wh_Client_EccSign((whClientContext *)kp->ctx, &ecc,
                                   hash, hash_len, sig, &wlen);
@@ -362,7 +399,7 @@ static int hsm_sign(const wp11_key_handle_t *handle,
             return -1;
         }
 
-        if (*siglen > (size_t)UINT16_MAX) { wc_FreeRsaKey(&rsa); return -1; }
+        if (!WP11_FITS_U16(*siglen)) { wc_FreeRsaKey(&rsa); return -1; }
         wlen = (uint16_t)*siglen;
         ret  = wh_Client_RsaFunction((whClientContext *)kp->ctx, &rsa,
                                       RSA_PRIVATE_ENCRYPT,
@@ -421,6 +458,10 @@ static int hsm_verify(const wp11_key_handle_t *handle,
 
         if (mechanism == HSM_CKM_ECDSA_SHA256) {
             wc_Sha256 sha;
+            /* wc_Sha256Update is a local wolfCrypt call that takes word32.
+             * Guard the cast; the 32-byte digest sent to the HSM is always
+             * within UINT16_MAX so no further guard is needed after hashing. */
+            if (!WP11_FITS_U32(inlen)) { wc_ecc_free(&ecc); return -1; }
             if (wc_InitSha256(&sha) != 0) { wc_ecc_free(&ecc); return -1; }
             ret = wc_Sha256Update(&sha, in, (word32)inlen);
             if (ret == 0) ret = wc_Sha256Final(&sha, digest);
@@ -429,12 +470,12 @@ static int hsm_verify(const wp11_key_handle_t *handle,
             hash     = digest;
             hash_len = WC_SHA256_DIGEST_SIZE;
         } else {
-            if (inlen > (size_t)UINT16_MAX) { wc_ecc_free(&ecc); return -1; }
+            if (!WP11_FITS_U16(inlen)) { wc_ecc_free(&ecc); return -1; }
             hash     = in;
             hash_len = (uint16_t)inlen;
         }
 
-        if (siglen > (size_t)UINT16_MAX) { wc_ecc_free(&ecc); return -1; }
+        if (!WP11_FITS_U16(siglen)) { wc_ecc_free(&ecc); return -1; }
         stat = 0;
         ret  = wh_Client_EccVerify((whClientContext *)kp->ctx, &ecc,
                                     sig, (uint16_t)siglen,
@@ -462,7 +503,7 @@ static int hsm_verify(const wp11_key_handle_t *handle,
         ret = wh_Client_RsaSetKeyId(&rsa, (whNvmId)kp->key_id);
         if (ret != 0) { wc_FreeRsaKey(&rsa); return -1; }
 
-        if (siglen > (size_t)UINT16_MAX) { wc_FreeRsaKey(&rsa); return -1; }
+        if (!WP11_FITS_U16(siglen)) { wc_FreeRsaKey(&rsa); return -1; }
         wlen = (uint16_t)sizeof(out);
         ret  = wh_Client_RsaFunction((whClientContext *)kp->ctx, &rsa,
                                       RSA_PUBLIC_DECRYPT,
@@ -613,10 +654,19 @@ static int hsm_derive(const wp11_key_handle_t *handle,
 
 static void hsm_free_key_priv(void *key_priv)
 {
-    /* The key lives on the wolfHSM server (NVM-persistent).
-     * The priv struct only holds a borrowed ctx pointer and a key ID.
-     * No key material to zero; just free the allocation. */
-    free(key_priv);
+    wp11_wolfhsm_key_priv_t *kp = (wp11_wolfhsm_key_priv_t *)key_priv;
+    if (kp == NULL) return;
+
+    /* Cache keys created by C_GenerateKeyPair are volatile on the server.
+     * Evict them on free so the server does not accumulate stale keys.
+     * Pre-provisioned (NVM-persistent) keys are left on the server.
+     * Ignore eviction errors: the connection may already be closed during
+     * C_Finalize shutdown, and the server evicts cache keys on restart. */
+    if (kp->generated_here && kp->ctx != NULL) {
+        (void)wh_Client_KeyEvict((whClientContext *)kp->ctx, kp->key_id);
+    }
+
+    free(kp);
 }
 
 /* -------------------------------------------------------------------------

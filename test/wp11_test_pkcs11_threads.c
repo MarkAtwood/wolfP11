@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_test_pkcs11_threads.c -- thread-safety tests for the wolfP11 PKCS#11 layer
  *
  * wolfP11-6v0: concurrent sign/verify
@@ -28,11 +49,22 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+#include "wolfp11/wp11_keystore.h"
+#include <wolfssl/wolfcrypt/random.h>
+#include <unistd.h>
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
 /* Test helper declared in src/wp11_pkcs11.c under WOLFP11_CFG_TEST.
  * Exports the soft key's EC public key in X9.62 uncompressed format.
  * Acquires the global lock internally; call from outside the PKCS#11 lock. */
 int wp11_test_soft_export_pub_x963(CK_OBJECT_HANDLE hKey,
                                     uint8_t *out, CK_ULONG *outlen);
+
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+/* Defined in src/wp11_pkcs11.c under WOLFP11_CFG_TEST + WOLFP11_CFG_USB_FLASH_BACKEND */
+void wp11_test_inject_flash_event(const char *path, int arrived);
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
 
 /* -------------------------------------------------------------------------
  * Shared constants
@@ -640,6 +672,12 @@ static int test_concurrent_login_same_slot(void)
     int                f = 0;
     int                i;
 
+    /* Force in-memory soft token so C_Login is not gated on keystore existence.
+     * Without this, WOLFP11_CFG_USB_FLASH_BACKEND builds fail with
+     * CKR_USER_PIN_NOT_INITIALIZED because the keystore backend is compiled in
+     * but no .p11k file is set up for the soft slot. */
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
     rv = C_Initialize(NULL);
     f += check(rv == CKR_OK, "concurrent_login: C_Initialize");
     if (rv != CKR_OK) return f;
@@ -684,6 +722,7 @@ static int test_concurrent_login_same_slot(void)
     rv = C_Finalize(NULL);
     f += check(rv == CKR_OK, "concurrent_login: C_Finalize");
 
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
     return f;
 }
 
@@ -754,6 +793,9 @@ static int test_concurrent_login_logout_interleave(void)
     CK_RV              rv;
     int                f = 0;
 
+    /* Force in-memory soft token (same reason as test_concurrent_login_same_slot) */
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
     rv = C_Initialize(NULL);
     f += check(rv == CKR_OK, "login_logout_interleave: C_Initialize");
     if (rv != CKR_OK) return f;
@@ -800,6 +842,7 @@ finalize:
     rv = C_Finalize(NULL);
     f += check(rv == CKR_OK, "login_logout_interleave: C_Finalize");
 
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
     return f;
 }
 
@@ -816,6 +859,292 @@ static int test_threads_login(void)
 
     return f;
 }
+
+/* =========================================================================
+ * wolfP11-ctoq: concurrent sessions on the same flash keystore token
+ * ====================================================================== */
+
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+
+#define FLASH_CONCURRENT_ITERS    20
+#define FLASH_CONCURRENT_P11K     "/tmp/wp11_thread_flash.p11k"
+#define FLASH_CONCURRENT_PIN      "threadpin"
+#define FLASH_CONCURRENT_PIN_LEN  ((CK_ULONG)9)
+
+/* Per-thread context: owns its own oracle ecc_key (no shared mutable state). */
+typedef struct {
+    pthread_barrier_t *barrier;
+    CK_SESSION_HANDLE  hSess;
+    CK_OBJECT_HANDLE   hKey;
+    uint8_t            oracle_pub[65];  /* X9.62 uncompressed P-256 public key */
+    CK_ULONG           oracle_pub_len;
+} flash_concurrent_ctx_t;
+
+/* 32-byte fixed hash for flash concurrent test -- distinct from test_hash above */
+static const CK_BYTE flash_hash[32] = {
+    0xf1, 0xa2, 0xb3, 0xc4, 0xd5, 0xe6, 0xf7, 0x08,
+    0x19, 0x2a, 0x3b, 0x4c, 0x5d, 0x6e, 0x7f, 0x80,
+    0xf1, 0xa2, 0xb3, 0xc4, 0xd5, 0xe6, 0xf7, 0x08,
+    0x19, 0x2a, 0x3b, 0x4c, 0x5d, 0x6e, 0x7f, 0x80
+};
+
+/* wolfP11-ctoq: each thread signs flash_hash 20 times from its own session,
+ * verifying each signature against an independent oracle ecc_key loaded from
+ * X9.62 public key bytes.  The oracle is per-thread to avoid concurrent reads
+ * of shared wolfCrypt mutable state. */
+static void *flash_concurrent_fn(void *arg)
+{
+    flash_concurrent_ctx_t *ctx = (flash_concurrent_ctx_t *)arg;
+    CK_MECHANISM mech    = { CKM_ECDSA, NULL_PTR, 0 };
+    CK_BYTE      sig[128];
+    CK_ULONG     siglen;
+    CK_RV        rv;
+    ecc_key      oracle;
+    int          oracle_ready = 0;
+    int          stat;
+    int          ret;
+    int          f = 0;
+    int          i;
+
+    /* Import oracle public key before hitting the barrier so that all
+     * sign operations start as close to simultaneously as possible. */
+    if (wc_ecc_init(&oracle) == 0) {
+        if (wc_ecc_import_x963(ctx->oracle_pub, (word32)ctx->oracle_pub_len,
+                               &oracle) == 0) {
+            oracle_ready = 1;
+        } else {
+            wc_ecc_free(&oracle);
+        }
+    }
+
+    /* Synchronize: wait until both threads are ready */
+    pthread_barrier_wait(ctx->barrier);
+
+    for (i = 0; i < FLASH_CONCURRENT_ITERS; i++) {
+        rv = C_SignInit(ctx->hSess, &mech, ctx->hKey);
+        if (rv != CKR_OK) {
+            printf("FAIL: flash_concurrent: C_SignInit iter %d rv=%lu\n",
+                   i, (unsigned long)rv);
+            f++;
+            continue;
+        }
+
+        siglen = (CK_ULONG)sizeof(sig);
+        rv = C_Sign(ctx->hSess, (CK_BYTE_PTR)flash_hash, (CK_ULONG)sizeof(flash_hash),
+                    sig, &siglen);
+        if (rv != CKR_OK) {
+            printf("FAIL: flash_concurrent: C_Sign iter %d rv=%lu\n",
+                   i, (unsigned long)rv);
+            f++;
+            continue;
+        }
+
+        if (!oracle_ready) {
+            printf("FAIL: flash_concurrent: oracle not ready at iter %d\n", i);
+            f++;
+            continue;
+        }
+
+        stat = 0;
+        ret  = wc_ecc_verify_hash(sig, (word32)siglen,
+                                   flash_hash, (word32)sizeof(flash_hash),
+                                   &stat, &oracle);
+        if (ret != 0 || stat != 1) {
+            printf("FAIL: flash_concurrent: oracle verify iter %d ret=%d stat=%d\n",
+                   i, ret, stat);
+            f++;
+        }
+    }
+
+    if (oracle_ready)
+        wc_ecc_free(&oracle);
+
+    return (void *)(intptr_t)f;
+}
+
+/* wolfP11-ctoq: set up a real .p11k file, open two sessions on the flash slot,
+ * login once (login state is token-scoped; sess1 inherits it), then spawn two
+ * threads each signing from its own session with the same key handle.
+ * Both must produce valid signatures verified by an independent oracle. */
+static int test_concurrent_flash_sign(void)
+{
+    ecc_key                orig_ecc;
+    WC_RNG                 rng;
+    CK_BYTE                der[256];
+    int                    der_len;
+    wp11_key_entry_t       entry;
+    CK_RV                  rv;
+    CK_SLOT_ID             slots[16];
+    CK_ULONG               count;
+    CK_SESSION_HANDLE      sess0 = 0, sess1 = 0;
+    CK_OBJECT_HANDLE       objs[16];
+    CK_ULONG               nfound;
+    CK_SLOT_ID             evt_slot;
+    flash_concurrent_ctx_t ctx[2];
+    pthread_barrier_t      barrier;
+    pthread_t              tids[2];
+    void                  *tres;
+    CK_ULONG               pub_len;
+    int                    n_created = 0;
+    int                    i;
+    int                    f = 0;
+
+    /* --- Generate key, write .p11k, keep orig_ecc for public-key export --- */
+    if (wc_InitRng(&rng) != 0) {
+        printf("SKIP: flash_concurrent: RNG init failed\n");
+        return 0;
+    }
+    if (wc_ecc_init(&orig_ecc) != 0) {
+        wc_FreeRng(&rng);
+        printf("SKIP: flash_concurrent: ECC init failed\n");
+        return 0;
+    }
+    if (wc_ecc_make_key(&rng, 32, &orig_ecc) != 0) {
+        wc_ecc_free(&orig_ecc); wc_FreeRng(&rng);
+        printf("SKIP: flash_concurrent: ECC keygen failed\n");
+        return 0;
+    }
+    der_len = wc_EccKeyToDer(&orig_ecc, (byte *)der, (word32)sizeof(der));
+    wc_FreeRng(&rng);
+    if (der_len <= 0) {
+        wc_ecc_free(&orig_ecc);
+        printf("SKIP: flash_concurrent: DER encode failed\n");
+        return 0;
+    }
+
+    memset(&entry, 0, sizeof(entry));
+    entry.key_type  = WP11_KEY_TYPE_EC;
+    entry.der_bytes = (uint8_t *)der;
+    entry.der_len   = (size_t)der_len;
+    strncpy(entry.label, "concurrent", sizeof(entry.label) - 1u);
+
+    if (wp11_keystore_create(FLASH_CONCURRENT_P11K,
+                              (const uint8_t *)FLASH_CONCURRENT_PIN,
+                              (size_t)FLASH_CONCURRENT_PIN_LEN,
+                              &entry, 1u) != WP11_KEYSTORE_OK) {
+        wc_ecc_free(&orig_ecc);
+        printf("SKIP: flash_concurrent: keystore_create failed\n");
+        return 0;
+    }
+
+    /* Export X9.62 uncompressed public key for the per-thread oracle */
+    pub_len = (CK_ULONG)sizeof(ctx[0].oracle_pub);
+    if (wc_ecc_export_x963(&orig_ecc, ctx[0].oracle_pub, (word32 *)&pub_len) != 0) {
+        wc_ecc_free(&orig_ecc);
+        unlink(FLASH_CONCURRENT_P11K);
+        printf("SKIP: flash_concurrent: export_x963 failed\n");
+        return 0;
+    }
+    ctx[0].oracle_pub_len = pub_len;
+    /* Give thread 1 the same public key bytes */
+    memcpy(ctx[1].oracle_pub, ctx[0].oracle_pub, pub_len);
+    ctx[1].oracle_pub_len = pub_len;
+
+    wc_ecc_free(&orig_ecc);
+    memset(der, 0, sizeof(der));
+
+    /* --- PKCS#11 setup: inject flash slot, open two sessions, login --- */
+    rv = C_Initialize(NULL_PTR);
+    f += check(rv == CKR_OK, "flash_concurrent: C_Initialize");
+    if (rv != CKR_OK) goto cleanup_file;
+
+    wp11_test_inject_flash_event(FLASH_CONCURRENT_P11K, 1 /* arrived */);
+    C_WaitForSlotEvent(CKF_DONT_BLOCK, &evt_slot, NULL); /* drain arrival event */
+
+    count = 16;
+    rv = C_GetSlotList(CK_FALSE, slots, &count);
+    f += check(rv == CKR_OK && count == 2,
+               "flash_concurrent: slot count == 2 after injection");
+    if (count < 2) goto finalize;
+
+    rv = C_OpenSession(slots[1], CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL_PTR, NULL_PTR, &sess0);
+    f += check(rv == CKR_OK, "flash_concurrent: C_OpenSession[0]");
+    if (rv != CKR_OK) goto finalize;
+
+    /* Login via sess0; PKCS#11 login state is token-scoped, so sess1 will
+     * also be in user state once it is opened after login. */
+    rv = C_Login(sess0, CKU_USER,
+                 (CK_UTF8CHAR_PTR)FLASH_CONCURRENT_PIN, FLASH_CONCURRENT_PIN_LEN);
+    f += check(rv == CKR_OK, "flash_concurrent: C_Login");
+    if (rv != CKR_OK) goto close0;
+
+    rv = C_OpenSession(slots[1], CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL_PTR, NULL_PTR, &sess1);
+    f += check(rv == CKR_OK, "flash_concurrent: C_OpenSession[1]");
+    if (rv != CKR_OK) goto logout;
+
+    /* Key objects are token-level; visible to all sessions on this token */
+    rv = C_FindObjectsInit(sess0, NULL_PTR, 0);
+    f += check(rv == CKR_OK, "flash_concurrent: C_FindObjectsInit");
+    nfound = 0;
+    rv = C_FindObjects(sess0, objs, 16, &nfound);
+    f += check(rv == CKR_OK, "flash_concurrent: C_FindObjects");
+    C_FindObjectsFinal(sess0);
+    f += check(nfound >= 1, "flash_concurrent: key visible after login");
+    if (nfound < 1) goto close1;
+
+    /* --- Spawn two threads, one per session, sharing the same key handle --- */
+    ctx[0].barrier = &barrier;
+    ctx[0].hSess   = sess0;
+    ctx[0].hKey    = objs[0];
+
+    ctx[1].barrier = &barrier;
+    ctx[1].hSess   = sess1;
+    ctx[1].hKey    = objs[0];
+
+    if (pthread_barrier_init(&barrier, NULL, 2) != 0) {
+        printf("FAIL: flash_concurrent: barrier_init failed\n");
+        f++;
+        goto close1;
+    }
+
+    for (i = 0; i < 2; i++) {
+        if (pthread_create(&tids[i], NULL, flash_concurrent_fn, &ctx[i]) != 0) {
+            printf("FAIL: flash_concurrent: pthread_create[%d] failed\n", i);
+            f++;
+            break;
+        }
+        n_created++;
+    }
+
+    if (n_created < 2) {
+        /* Cancel any threads that are blocked at the barrier to avoid deadlock */
+        for (i = 0; i < n_created; i++) {
+            pthread_cancel(tids[i]);
+            pthread_join(tids[i], NULL);
+        }
+    } else {
+        for (i = 0; i < 2; i++) {
+            tres = NULL;
+            pthread_join(tids[i], &tres);
+            f += (int)(intptr_t)tres;
+        }
+    }
+
+    pthread_barrier_destroy(&barrier);
+    f += check(f == 0, "flash_concurrent: both sessions signed correctly");
+
+close1:
+    C_CloseSession(sess1);
+logout:
+    C_Logout(sess0);
+close0:
+    C_CloseSession(sess0);
+finalize:
+    rv = C_Finalize(NULL_PTR);
+    f += check(rv == CKR_OK, "flash_concurrent: C_Finalize");
+cleanup_file:
+    unlink(FLASH_CONCURRENT_P11K);
+    return f;
+}
+
+static int test_threads_flash(void)
+{
+    return test_concurrent_flash_sign();
+}
+
+#endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
 
 /* =========================================================================
  * wolfP11-qnt: concurrent init/finalize
@@ -1015,6 +1344,9 @@ int wp11_test_pkcs11_threads(void)
 
     failures += test_threads_sign();
     failures += test_threads_login();
+#ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+    failures += test_threads_flash();
+#endif
     failures += test_threads_init();
 
     return failures;

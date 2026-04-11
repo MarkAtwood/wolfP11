@@ -1,3 +1,24 @@
+/* wolfP11
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfP11.
+ *
+ * wolfP11 is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfP11 is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * For a commercial license, contact wolfSSL Inc. at licensing@wolfssl.com.
+ */
+
 /* wp11_test_pkcs11.c -- tests for the wolfP11 PKCS#11 layer
  *
  * Compile with -DWOLFP11_CFG_TEST to enable.
@@ -18,14 +39,24 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* wolfCrypt ECC for independent oracle verification in soft-token tests */
+/* wolfCrypt ECC, Ed25519, AES, RSA, and SHA-256 for independent oracle verification in soft-token tests */
 #include <wolfssl/options.h>
+#include <wolfssl/wolfcrypt/aes.h>
 #include <wolfssl/wolfcrypt/ecc.h>
+#include <wolfssl/wolfcrypt/ed25519.h>
+#include <wolfssl/wolfcrypt/rsa.h>
+#include <wolfssl/wolfcrypt/sha256.h>
 
-/* Test helper declared in src/wp11_pkcs11.c under WOLFP11_CFG_TEST.
- * Exports the soft key's EC public key in X9.62 uncompressed format. */
+/* Test helpers declared in src/wp11_pkcs11.c under WOLFP11_CFG_TEST. */
 int wp11_test_soft_export_pub_x963(CK_OBJECT_HANDLE hKey,
                                     uint8_t *out, CK_ULONG *outlen);
+int wp11_test_soft_export_ed25519_pub(CK_OBJECT_HANDLE hKey,
+                                       uint8_t *out, CK_ULONG *outlen);
+/* Direct OAEP oracle: bypasses PKCS#11 session layer, for C_Encrypt cross-validation. */
+int wp11_test_soft_rsa_oaep_decrypt(CK_OBJECT_HANDLE hKey,
+                                     const uint8_t *ct, word32 ctlen,
+                                     uint8_t *pt, word32 ptbuflen, word32 *ptlen,
+                                     int hash_type, int mgf);
 
 /* -------------------------------------------------------------------------
  * Shared helper
@@ -985,8 +1016,9 @@ static int test_piv_cert_objects(void)
  * ---------------------------------------------------------------------- */
 #ifdef WOLFP11_CFG_USB_FLASH_BACKEND
 
-/* Forward declaration -- defined in src/wp11_pkcs11.c under WOLFP11_CFG_TEST */
-void wp11_test_inject_flash_event(const char *path, int arrived);
+/* Forward declarations -- defined in src/wp11_pkcs11.c under WOLFP11_CFG_TEST */
+void         wp11_test_inject_flash_event(const char *path, int arrived);
+unsigned int wp11_test_hotplug_dropped(void);
 
 #define TEST_P11K_PATH  "/run/media/testuser/USBKEY/mykeys.p11k"
 #define TEST_P11K_PATH2 "/run/media/testuser/USBKEY2/other.p11k"
@@ -1234,6 +1266,45 @@ static int flash_test_make_keystore(ecc_key *orig_ecc, const char *label)
     return 0;
 }
 
+/* wolfP11-444s: Create a flash keystore with a caller-supplied PKCS#1 DER
+ * RSA private key.  Used by test_rsa_oaep_vector_oracle.
+ * Returns 0 on success, -1 on failure. */
+static int flash_test_make_rsa_keystore_from_der(const uint8_t *der,
+                                                   size_t         derlen,
+                                                   const char    *label)
+{
+    wp11_key_entry_t entry;
+    int ret;
+
+    uint8_t *der_copy;
+
+    /* derlen is always > 0: this function is only called with DER-encoded RSA
+     * private keys, which are at minimum ~500 bytes.  malloc(0) is not a
+     * concern here, but the NULL check below guards against allocation failure. */
+    der_copy = (uint8_t *)malloc(derlen);
+    if (der_copy == NULL) {
+        printf("SKIP: %s: malloc failed\n", label);
+        return -1;
+    }
+    memcpy(der_copy, der, derlen);
+
+    memset(&entry, 0, sizeof(entry));
+    entry.key_type  = WP11_KEY_TYPE_RSA;
+    entry.der_bytes = der_copy;
+    entry.der_len   = derlen;
+    strncpy(entry.label, label, sizeof(entry.label) - 1u);
+
+    ret = wp11_keystore_create(FLASH_TEST_P11K,
+                               (const uint8_t *)FLASH_TEST_PIN,
+                               (size_t)FLASH_TEST_PIN_LEN, &entry, 1u);
+    free(der_copy);
+    if (ret != WP11_KEYSTORE_OK) {
+        printf("SKIP: %s: keystore_create failed (%d)\n", label, ret);
+        return -1;
+    }
+    return 0;
+}
+
 /* -------------------------------------------------------------------------
  * test_flash_pkcs11_login_correct_pin
  *
@@ -1253,8 +1324,10 @@ static int test_flash_pkcs11_login_correct_pin(void)
     CK_SLOT_ID      evt_slot;
     int f = 0;
 
+    /* wolfP11-v4mh: setup failure must count as a test failure, not a skip.
+     * Returning 0 here masked broken RNG/keygen/keystore write as passing. */
     if (flash_test_make_keystore(&orig_ecc, "flash_login_correct_pin") != 0)
-        return 0; /* skip counted as 0 failures */
+        return f + 1;
     wc_ecc_free(&orig_ecc); /* key bytes are now inside the .p11k file */
 
     rv = C_Initialize(NULL);
@@ -1286,6 +1359,15 @@ static int test_flash_pkcs11_login_correct_pin(void)
         f += check(rv == CKR_OK, "flash_login_correct_pin: C_FindObjects");
         f += check(nfound >= 1,
                    "flash_login_correct_pin: at least one key visible after login");
+        /* wolfP11-q3d5: count check alone passes if FindObjects returns wrong
+         * type; verify object is actually a private key via CKA_CLASS. */
+        if (nfound >= 1) {
+            CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+            CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+            C_GetAttributeValue(hSess, objs[0], &acls, 1);
+            f += check(cls == CKO_PRIVATE_KEY,
+                       "flash_login_correct_pin: found object is CKO_PRIVATE_KEY");
+        }
         C_FindObjectsFinal(hSess);
 
         rv = C_Logout(hSess);
@@ -1317,7 +1399,7 @@ static int test_flash_pkcs11_login_wrong_pin(void)
     int f = 0;
 
     if (flash_test_make_keystore(&orig_ecc, "flash_login_wrong_pin") != 0)
-        return 0;
+        return f + 1; /* wolfP11-v4mh */
     wc_ecc_free(&orig_ecc);
 
     rv = C_Initialize(NULL);
@@ -1369,7 +1451,7 @@ static int test_flash_pkcs11_logout_clears_keys(void)
     int f = 0;
 
     if (flash_test_make_keystore(&orig_ecc, "flash_logout_clears_keys") != 0)
-        return 0;
+        return f + 1; /* wolfP11-v4mh */
     wc_ecc_free(&orig_ecc);
 
     rv = C_Initialize(NULL);
@@ -1401,6 +1483,14 @@ static int test_flash_pkcs11_logout_clears_keys(void)
     C_FindObjectsFinal(hSess);
     f += check(nfound >= 1,
                "flash_logout_clears_keys: keys visible after login");
+    /* wolfP11-q3d5: verify CKA_CLASS, not just count */
+    if (nfound >= 1) {
+        CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+        CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+        C_GetAttributeValue(hSess, objs[0], &acls, 1);
+        f += check(cls == CKO_PRIVATE_KEY,
+                   "flash_logout_clears_keys: found object is CKO_PRIVATE_KEY");
+    }
 
     rv = C_Logout(hSess);
     f += check(rv == CKR_OK, "flash_logout_clears_keys: C_Logout");
@@ -1462,7 +1552,7 @@ static int test_flash_pkcs11_sign_roundtrip(void)
     /* orig_ecc is kept alive past keystore creation so the public key is
      * available for the oracle verification step below. */
     if (flash_test_make_keystore(&orig_ecc, "flash_sign_roundtrip") != 0)
-        return 0;
+        return f + 1; /* wolfP11-v4mh */
     /* Do NOT free orig_ecc here -- needed for oracle. */
 
     rv = C_Initialize(NULL);
@@ -1503,6 +1593,14 @@ static int test_flash_pkcs11_sign_roundtrip(void)
     C_FindObjectsFinal(hSess);
 
     if (nfound >= 1) {
+        /* wolfP11-q3d5: verify object class before trusting the handle */
+        {
+            CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+            CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+            C_GetAttributeValue(hSess, objs[0], &acls, 1);
+            f += check(cls == CKO_PRIVATE_KEY,
+                       "flash_sign_roundtrip: found object is CKO_PRIVATE_KEY");
+        }
         /* CKM_ECDSA: C_Sign receives a prehashed 32-byte digest directly */
         memset(&mech, 0, sizeof(mech));
         mech.mechanism      = CKM_ECDSA;
@@ -1584,7 +1682,7 @@ static int test_flash_pkcs11_sign_size_query(void)
     static const CK_ULONG P256_ECDSA_MAX = 72;
 
     if (flash_test_make_keystore(&orig_ecc, "sign_size_query") != 0)
-        return 0;
+        return f + 1; /* wolfP11-v4mh */
     /* orig_ecc kept alive for oracle verification below */
 
     rv = C_Initialize(NULL);
@@ -1622,6 +1720,14 @@ static int test_flash_pkcs11_sign_size_query(void)
     f += check(nfound >= 1, "sign_size_query: key visible after login");
 
     if (nfound >= 1) {
+        /* wolfP11-q3d5: verify object class before trusting the handle */
+        {
+            CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+            CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+            C_GetAttributeValue(hSess, objs[0], &acls, 1);
+            f += check(cls == CKO_PRIVATE_KEY,
+                       "sign_size_query: found object is CKO_PRIVATE_KEY");
+        }
         memset(&mech, 0, sizeof(mech));
         mech.mechanism = CKM_ECDSA;
 
@@ -1688,7 +1794,7 @@ static int test_flash_pkcs11_destroy_flash_key(void)
     int f = 0;
 
     if (flash_test_make_keystore(&orig_ecc, "flash_destroy_key") != 0)
-        return 0; /* skip */
+        return f + 1; /* wolfP11-v4mh */
     wc_ecc_free(&orig_ecc);
 
     rv = C_Initialize(NULL);
@@ -1725,6 +1831,14 @@ static int test_flash_pkcs11_destroy_flash_key(void)
     C_FindObjectsFinal(hSess);
 
     if (nfound >= 1) {
+        /* wolfP11-q3d5: verify object class before trusting the handle */
+        {
+            CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+            CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+            C_GetAttributeValue(hSess, objs[0], &acls, 1);
+            f += check(cls == CKO_PRIVATE_KEY,
+                       "flash_destroy_key: found object is CKO_PRIVATE_KEY");
+        }
         rv = C_DestroyObject(hSess, objs[0]);
         f += check(rv == CKR_OK,
                    "flash_destroy_key: C_DestroyObject returns CKR_OK");
@@ -1772,7 +1886,7 @@ static int test_flash_pkcs11_departure_while_logged_in(void)
     int f = 0;
 
     if (flash_test_make_keystore(&orig_ecc, "flash_depart_loggedin") != 0)
-        return 0; /* skip */
+        return f + 1; /* wolfP11-v4mh */
     wc_ecc_free(&orig_ecc);
 
     /* --- Sub-test A: drive removed while session is logged in --- */
@@ -1807,6 +1921,14 @@ static int test_flash_pkcs11_departure_while_logged_in(void)
     C_FindObjectsFinal(hSess);
     f += check(nfound >= 1,
                "flash_depart_loggedin: keys visible before departure");
+    /* wolfP11-q3d5: verify object class */
+    if (nfound >= 1) {
+        CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+        CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+        C_GetAttributeValue(hSess, objs[0], &acls, 1);
+        f += check(cls == CKO_PRIVATE_KEY,
+                   "flash_depart_loggedin: found object is CKO_PRIVATE_KEY");
+    }
 
     /* Simulate USB drive removal while session is active and logged in */
     wp11_test_inject_flash_event(FLASH_TEST_P11K, 0);
@@ -1855,6 +1977,14 @@ static int test_flash_pkcs11_departure_while_logged_in(void)
         C_FindObjectsFinal(hSess);
         f += check(nfound >= 1,
                    "flash_depart_loggedin: keys visible after re-login");
+        /* wolfP11-q3d5: verify object class */
+        if (nfound >= 1) {
+            CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+            CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+            C_GetAttributeValue(hSess, objs[0], &acls, 1);
+            f += check(cls == CKO_PRIVATE_KEY,
+                       "flash_depart_loggedin: re-login object is CKO_PRIVATE_KEY");
+        }
 
         rv = C_Logout(hSess);
         f += check(rv == CKR_OK,
@@ -1894,7 +2024,7 @@ static int test_flash_pkcs11_get_attribute_value(void)
     int f = 0;
 
     if (flash_test_make_keystore(&orig_ecc, "get_attr_flash") != 0)
-        return 0; /* skip -- keystore creation failed */
+        return f + 1; /* wolfP11-v4mh */
     wc_ecc_free(&orig_ecc);
 
     rv = C_Initialize(NULL);
@@ -1930,6 +2060,14 @@ static int test_flash_pkcs11_get_attribute_value(void)
         C_Logout(hSess); C_CloseSession(hSess);
         C_Finalize(NULL); unlink(FLASH_TEST_P11K);
         return f;
+    }
+    /* wolfP11-q3d5: verify object class, not just count */
+    {
+        CK_OBJECT_CLASS cls = (CK_OBJECT_CLASS)0xFFFFFFFFUL;
+        CK_ATTRIBUTE    acls = { CKA_CLASS, &cls, sizeof(cls) };
+        C_GetAttributeValue(hSess, objs[0], &acls, 1);
+        f += check(cls == CKO_PRIVATE_KEY,
+                   "get_attr_flash: found object is CKO_PRIVATE_KEY");
     }
 
     /* --- Test 1: known attribute, correctly-sized buffer -> CKR_OK --- */
@@ -2601,14 +2739,18 @@ static int test_init_error_path_active_flag(void)
     rv = C_SignInit(hSess, &good_mech, hPriv);
     f += check(rv == CKR_OK, "init_errpath: first SignInit(valid) -> CKR_OK");
 
+    /* PKCS#11 spec: CKR_OPERATION_ACTIVE is returned when a sign operation
+     * is already in progress; mechanism validation is not reached on
+     * double-init. The first valid init remains active (wolfP11-h53y). */
     rv = C_SignInit(hSess, &bad_mech, hPriv);
-    f += check(rv == CKR_MECHANISM_INVALID,
-               "init_errpath: second SignInit(bad_mech) -> CKR_MECHANISM_INVALID");
+    f += check(rv == CKR_OPERATION_ACTIVE,
+               "init_errpath: second SignInit while active -> CKR_OPERATION_ACTIVE");
 
+    /* First valid SignInit is still active; C_Sign proceeds and clears it. */
     sig_len = sizeof(sig_buf);
     rv = C_Sign(hSess, (CK_BYTE_PTR)test_hash, 32, sig_buf, &sig_len);
-    f += check(rv == CKR_OPERATION_NOT_INITIALIZED,
-               "init_errpath: C_Sign after re-init(bad_mech) -> CKR_OPERATION_NOT_INITIALIZED");
+    f += check(rv == CKR_OK,
+               "init_errpath: C_Sign after rejected re-init uses first valid init");
 
     /* -- C_VerifyInit with bad mechanism -- */
     rv = C_VerifyInit(hSess, &bad_mech, hPriv);
@@ -2682,16 +2824,18 @@ static int test_sign_init_active_cleared_on_error(void)
     f += check(rv == CKR_OK,
                "sign_init_error: first C_SignInit (valid) succeeds");
 
-    /* Step 2: re-init with invalid mechanism must fail AND clear sign_active */
+    /* Step 2: PKCS#11 spec requires CKR_OPERATION_ACTIVE when a sign
+     * operation is already active; mechanism validation is not reached
+     * on double-init. The first valid init stays active (wolfP11-h53y). */
     rv = C_SignInit(hSess, &bad_mech, hPriv);
-    f += check(rv == CKR_MECHANISM_INVALID,
-               "sign_init_error: second C_SignInit with bad mech returns CKR_MECHANISM_INVALID");
+    f += check(rv == CKR_OPERATION_ACTIVE,
+               "sign_init_error: second C_SignInit while active -> CKR_OPERATION_ACTIVE");
 
-    /* Step 3: C_Sign must see no active operation (sign_active was cleared) */
+    /* Step 3: first valid SignInit is still active; C_Sign proceeds normally. */
     siglen = sizeof(sig);
     rv = C_Sign(hSess, (CK_BYTE_PTR)test_hash, sizeof(test_hash), sig, &siglen);
-    f += check(rv == CKR_OPERATION_NOT_INITIALIZED,
-               "sign_init_error: C_Sign after failed re-init returns CKR_OPERATION_NOT_INITIALIZED");
+    f += check(rv == CKR_OK,
+               "sign_init_error: C_Sign after rejected re-init uses first valid init");
 
 done:
     C_Logout(hSess);
@@ -2822,7 +2966,1207 @@ static int test_soft_generate_keypair_basic(void)
     return f;
 }
 
+/* -------------------------------------------------------------------------
+ * test_soft_generate_keypair_p384
+ *
+ * Verifies C_GenerateKeyPair with CKM_EC_KEY_PAIR_GEN and CKA_EC_PARAMS
+ * set to the P-384 OID.  The generated key must sign a 48-byte hash whose
+ * signature is independently verified by wolfCrypt's wc_ecc_verify_hash.
+ * ---------------------------------------------------------------------- */
+static int test_soft_generate_keypair_p384(void)
+{
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess     = 0;
+    CK_OBJECT_HANDLE  hPub      = 0;
+    CK_OBJECT_HANDLE  hPriv     = 0;
+    CK_MECHANISM      gen_mech  = { CKM_EC_KEY_PAIR_GEN, NULL, 0 };
+    CK_MECHANISM      sign_mech = { CKM_ECDSA, NULL, 0 };
+    /* P-384 OID: 1.3.132.0.34 (DER-encoded named curve) */
+    static const CK_BYTE p384_oid[] = {
+        0x06,0x05,0x2b,0x81,0x04,0x00,0x22
+    };
+    CK_ATTRIBUTE pub_template[] = {
+        { CKA_EC_PARAMS, (CK_VOID_PTR)p384_oid, sizeof(p384_oid) }
+    };
+    static const CK_UTF8CHAR test_pin[] = "softtest";
+    static const CK_ULONG    pin_len    = 8;
+    /* 48-byte placeholder hash for P-384 ECDSA signing */
+    static const CK_BYTE test_hash[48] = {
+        0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
+        0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x10,
+        0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,
+        0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f,0x20,
+        0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,
+        0x29,0x2a,0x2b,0x2c,0x2d,0x2e,0x2f,0x30
+    };
+    CK_BYTE  sig[128];
+    CK_ULONG siglen = sizeof(sig);
+    /* P-384 uncompressed EC point: 04 || X(48) || Y(48) = 97 bytes */
+    uint8_t  pub_x963[97];
+    CK_ULONG pub_len    = sizeof(pub_x963);
+    ecc_key  oracle_key;
+    int      oracle_stat = 0;
+    int      oracle_ret;
+    int      f = 0;
+
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "soft_gkp_p384: C_Initialize");
+    if (rv != CKR_OK) { unsetenv("WOLFP11_SOFT_KEYSTORE_PATH"); return f; }
+
+    rv = C_OpenSession(0, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL, NULL, &hSess);
+    f += check(rv == CKR_OK, "soft_gkp_p384: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)test_pin, pin_len);
+    f += check(rv == CKR_OK, "soft_gkp_p384: C_Login");
+
+    rv = C_GenerateKeyPair(hSess, &gen_mech,
+                            pub_template, 1,
+                            NULL, 0,
+                            &hPub, &hPriv);
+    f += check(rv == CKR_OK, "soft_gkp_p384: C_GenerateKeyPair returns CKR_OK");
+    f += check(hPriv != 0,   "soft_gkp_p384: private key handle non-zero");
+    f += check(hPub  != 0,   "soft_gkp_p384: public key handle non-zero");
+
+    if (rv == CKR_OK) {
+        rv = C_SignInit(hSess, &sign_mech, hPriv);
+        f += check(rv == CKR_OK, "soft_gkp_p384: C_SignInit returns CKR_OK");
+        if (rv == CKR_OK) {
+            siglen = sizeof(sig);
+            rv = C_Sign(hSess, (CK_BYTE_PTR)test_hash, sizeof(test_hash),
+                        sig, &siglen);
+            f += check(rv == CKR_OK, "soft_gkp_p384: C_Sign returns CKR_OK");
+            /* P-384 DER ECDSA: SEQUENCE + 2*INTEGER(49 max) = 104 bytes max */
+            f += check(siglen > 0 && siglen <= 104u,
+                       "soft_gkp_p384: signature length plausible for P-384");
+
+            /* Independent oracle: wc_ecc_verify_hash confirms the signature
+             * is cryptographically valid using the generated public key. */
+            if (rv == CKR_OK && siglen > 0) {
+                pub_len    = sizeof(pub_x963);
+                oracle_ret = wp11_test_soft_export_pub_x963(hPub, pub_x963,
+                                                             &pub_len);
+                f += check(oracle_ret == 0 && pub_len == 97u,
+                           "soft_gkp_p384: exported public key is 97 bytes (P-384)");
+                if (oracle_ret == 0 && wc_ecc_init(&oracle_key) == 0) {
+                    oracle_ret = wc_ecc_import_x963(pub_x963, (word32)pub_len,
+                                                    &oracle_key);
+                    if (oracle_ret == 0) {
+                        oracle_ret = wc_ecc_verify_hash(
+                            sig, (word32)siglen,
+                            test_hash, (word32)sizeof(test_hash),
+                            &oracle_stat, &oracle_key);
+                    }
+                    f += check(oracle_ret == 0 && oracle_stat == 1,
+                               "soft_gkp_p384: oracle -- wolfCrypt verifies C_Sign output");
+                    wc_ecc_free(&oracle_key);
+                }
+            }
+        }
+    }
+
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * test_soft_generate_keypair_rsa
+ *
+ * Verifies C_GenerateKeyPair with CKM_RSA_PKCS_KEY_PAIR_GEN on the soft
+ * token.  The RSA-2048 key must produce a PKCS#1 v1.5 signature that is
+ * independently verified by C_Verify, which uses wc_RsaSSL_Verify (RSA
+ * public-key operation -- inverse of the private-key sign operation).
+ * ---------------------------------------------------------------------- */
+static int test_soft_generate_keypair_rsa(void)
+{
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess        = 0;
+    CK_OBJECT_HANDLE  hPub         = 0;
+    CK_OBJECT_HANDLE  hPriv        = 0;
+    CK_MECHANISM      gen_mech     = { CKM_RSA_PKCS_KEY_PAIR_GEN, NULL, 0 };
+    CK_MECHANISM      sign_mech    = { CKM_RSA_PKCS, NULL, 0 };
+    CK_ULONG          modulus_bits = 2048;
+    CK_ATTRIBUTE      pub_template[] = {
+        { CKA_MODULUS_BITS, &modulus_bits, sizeof(modulus_bits) }
+    };
+    static const CK_UTF8CHAR test_pin[] = "softtest";
+    static const CK_ULONG    pin_len    = 8;
+    /* 20-byte SHA-1 placeholder for RSA PKCS#1 v1.5 signing */
+    static const CK_BYTE test_hash[20] = {
+        0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
+        0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,0x10,
+        0x11,0x12,0x13,0x14
+    };
+    CK_BYTE  sig[256];
+    CK_ULONG siglen = sizeof(sig);
+    int      f = 0;
+
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "soft_gkp_rsa: C_Initialize");
+    if (rv != CKR_OK) { unsetenv("WOLFP11_SOFT_KEYSTORE_PATH"); return f; }
+
+    rv = C_OpenSession(0, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL, NULL, &hSess);
+    f += check(rv == CKR_OK, "soft_gkp_rsa: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)test_pin, pin_len);
+    f += check(rv == CKR_OK, "soft_gkp_rsa: C_Login");
+
+    rv = C_GenerateKeyPair(hSess, &gen_mech,
+                            pub_template, 1,
+                            NULL, 0,
+                            &hPub, &hPriv);
+    f += check(rv == CKR_OK, "soft_gkp_rsa: C_GenerateKeyPair returns CKR_OK");
+    f += check(hPriv != 0,   "soft_gkp_rsa: private key handle non-zero");
+    f += check(hPub  != 0,   "soft_gkp_rsa: public key handle non-zero");
+
+    if (rv == CKR_OK) {
+        rv = C_SignInit(hSess, &sign_mech, hPriv);
+        f += check(rv == CKR_OK, "soft_gkp_rsa: C_SignInit returns CKR_OK");
+        if (rv == CKR_OK) {
+            siglen = sizeof(sig);
+            rv = C_Sign(hSess, (CK_BYTE_PTR)test_hash, sizeof(test_hash),
+                        sig, &siglen);
+            f += check(rv == CKR_OK, "soft_gkp_rsa: C_Sign returns CKR_OK");
+            /* RSA-2048 signature is exactly the modulus size: 256 bytes */
+            f += check(siglen == 256u,
+                       "soft_gkp_rsa: signature is 256 bytes (RSA-2048)");
+
+            /* Independent oracle: C_Verify performs wc_RsaSSL_Verify (RSA
+             * public-key unpadding), the mathematical inverse of the private-
+             * key sign.  A mismatched key pair or corrupted key fails here. */
+            if (rv == CKR_OK && siglen > 0) {
+                rv = C_VerifyInit(hSess, &sign_mech, hPub);
+                f += check(rv == CKR_OK,
+                           "soft_gkp_rsa: C_VerifyInit returns CKR_OK");
+                if (rv == CKR_OK) {
+                    rv = C_Verify(hSess,
+                                  (CK_BYTE_PTR)test_hash, sizeof(test_hash),
+                                  sig, siglen);
+                    f += check(rv == CKR_OK,
+                               "soft_gkp_rsa: oracle -- C_Verify confirms key pair is valid");
+                }
+            }
+        }
+    }
+
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * test_soft_generate_keypair_ed25519
+ *
+ * Verifies C_GenerateKeyPair with CKM_EC_EDWARDS_KEY_PAIR_GEN on the soft
+ * token.  Ed25519 signs the full message (no pre-hash); the signature is
+ * always exactly 64 bytes.  The generated signature is independently
+ * verified by wolfCrypt's wc_ed25519_verify_msg using the exported 32-byte
+ * raw public key -- a different code path from the sign path.
+ * ---------------------------------------------------------------------- */
+static int test_soft_generate_keypair_ed25519(void)
+{
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess     = 0;
+    CK_OBJECT_HANDLE  hPub      = 0;
+    CK_OBJECT_HANDLE  hPriv     = 0;
+    CK_MECHANISM      gen_mech  = { CKM_EC_EDWARDS_KEY_PAIR_GEN, NULL, 0 };
+    CK_MECHANISM      sign_mech = { CKM_EDDSA, NULL, 0 };
+    static const CK_UTF8CHAR test_pin[] = "softtest";
+    static const CK_ULONG    pin_len    = 8;
+    /* Arbitrary test message -- Ed25519 signs the full message, not a hash */
+    static const CK_BYTE test_msg[] = "wolfP11 Ed25519 test message";
+    CK_BYTE  sig[64];
+    CK_ULONG siglen = sizeof(sig);
+    /* Raw 32-byte Ed25519 public key */
+    uint8_t  pub_raw[32];
+    CK_ULONG pub_len   = sizeof(pub_raw);
+    ed25519_key oracle_key;
+    int         oracle_init = 0;
+    int         oracle_stat = 0;
+    int         oracle_ret;
+    int         f = 0;
+
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "soft_gkp_ed25519: C_Initialize");
+    if (rv != CKR_OK) { unsetenv("WOLFP11_SOFT_KEYSTORE_PATH"); return f; }
+
+    rv = C_OpenSession(0, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL, NULL, &hSess);
+    f += check(rv == CKR_OK, "soft_gkp_ed25519: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)test_pin, pin_len);
+    f += check(rv == CKR_OK, "soft_gkp_ed25519: C_Login");
+
+    /* Ed25519 has fixed parameters -- no CKA_EC_PARAMS template needed */
+    rv = C_GenerateKeyPair(hSess, &gen_mech,
+                            NULL, 0,
+                            NULL, 0,
+                            &hPub, &hPriv);
+    f += check(rv == CKR_OK, "soft_gkp_ed25519: C_GenerateKeyPair returns CKR_OK");
+    f += check(hPriv != 0,   "soft_gkp_ed25519: private key handle non-zero");
+    f += check(hPub  != 0,   "soft_gkp_ed25519: public key handle non-zero");
+
+    if (rv == CKR_OK) {
+        rv = C_SignInit(hSess, &sign_mech, hPriv);
+        f += check(rv == CKR_OK, "soft_gkp_ed25519: C_SignInit returns CKR_OK");
+        if (rv == CKR_OK) {
+            siglen = sizeof(sig);
+            rv = C_Sign(hSess, (CK_BYTE_PTR)test_msg, sizeof(test_msg) - 1u,
+                        sig, &siglen);
+            f += check(rv == CKR_OK, "soft_gkp_ed25519: C_Sign returns CKR_OK");
+            /* Ed25519 signature is always exactly 64 bytes */
+            f += check(siglen == 64u,
+                       "soft_gkp_ed25519: signature is exactly 64 bytes");
+
+            /* Independent oracle: wc_ed25519_verify_msg confirms the signature
+             * is cryptographically valid using the exported raw public key.
+             * This is a different code path from the sign path. */
+            if (rv == CKR_OK && siglen == 64u) {
+                pub_len    = sizeof(pub_raw);
+                oracle_ret = wp11_test_soft_export_ed25519_pub(hPub, pub_raw,
+                                                                &pub_len);
+                f += check(oracle_ret == 0 && pub_len == 32u,
+                           "soft_gkp_ed25519: exported public key is 32 bytes");
+                if (oracle_ret == 0 && wc_ed25519_init(&oracle_key) == 0) {
+                    oracle_init = 1;
+                    oracle_ret = wc_ed25519_import_public(pub_raw,
+                                                          (word32)pub_len,
+                                                          &oracle_key);
+                    if (oracle_ret == 0) {
+                        oracle_stat = 0;
+                        oracle_ret = wc_ed25519_verify_msg(
+                            sig, (word32)siglen,
+                            (const uint8_t *)test_msg, sizeof(test_msg) - 1u,
+                            &oracle_stat, &oracle_key);
+                    }
+                    f += check(oracle_ret == 0 && oracle_stat == 1,
+                               "soft_gkp_ed25519: oracle -- wolfCrypt verifies C_Sign output");
+                }
+            }
+        }
+    }
+
+    if (oracle_init) wc_ed25519_free(&oracle_key);
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * test_soft_rsa_oaep
+ *
+ * Verifies CKM_RSA_PKCS_OAEP on the soft token using cross-validation:
+ *   Part A: wolfCrypt oracle wc_RsaPublicEncrypt_ex (using N/E from attributes)
+ *           -> wolfP11 C_Decrypt verifies correct plaintext recovery.
+ *   Part B: wolfP11 C_Encrypt -> wp11_test_soft_rsa_oaep_decrypt oracle
+ *           (direct wc_RsaPrivateDecrypt_ex, bypassing PKCS#11 session layer)
+ *           verifies correct plaintext recovery.
+ * ---------------------------------------------------------------------- */
+static int test_soft_rsa_oaep(void)
+{
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess  = 0;
+    CK_OBJECT_HANDLE  hPub   = 0;
+    CK_OBJECT_HANDLE  hPriv  = 0;
+    int               f      = 0;
+    int               wret;
+
+    static const CK_UTF8CHAR test_pin[] = "softtest";
+    static const CK_ULONG    pin_len    = 8;
+
+    /* RSA-2048 key pair generation */
+    static const CK_ULONG mod_bits = 2048u;
+    CK_ATTRIBUTE pub_tmpl[] = {
+        { CKA_MODULUS_BITS, (CK_VOID_PTR)&mod_bits, sizeof(mod_bits) }
+    };
+    CK_MECHANISM gen_mech = { CKM_RSA_PKCS_KEY_PAIR_GEN, NULL_PTR, 0 };
+
+    /* OAEP mechanism params: SHA-256 hash, MGF1-SHA256, no label */
+    CK_RSA_PKCS_OAEP_PARAMS oaep_params;
+    CK_MECHANISM oaep_mech;
+
+    /* Exported public key (N, E) for Part A wolfCrypt oracle */
+    uint8_t  n_buf[256];   /* 256 bytes = RSA-2048 modulus */
+    uint8_t  e_buf[32];
+    CK_ULONG n_len = sizeof(n_buf);
+    CK_ULONG e_len = sizeof(e_buf);
+    CK_ATTRIBUTE n_attr = { CKA_MODULUS,          n_buf, sizeof(n_buf) };
+    CK_ATTRIBUTE e_attr = { CKA_PUBLIC_EXPONENT,  e_buf, sizeof(e_buf) };
+
+    static const uint8_t plaintext[] = "wolfP11 RSA-OAEP test";
+    static const CK_ULONG pt_len = sizeof(plaintext) - 1u;
+
+    /* Part A buffers: oracle encrypts, wolfP11 decrypts */
+    uint8_t  ct_a[256];    /* RSA-2048 ciphertext is always 256 bytes */
+    int      ct_a_len;     /* wc_RsaPublicEncrypt_ex returns int */
+    uint8_t  pt_a_out[sizeof(plaintext)];
+    CK_ULONG pt_a_out_len = sizeof(pt_a_out);
+
+    /* Part B buffers: wolfP11 encrypts, oracle decrypts */
+    uint8_t  ct_b[256];
+    CK_ULONG ct_b_len = sizeof(ct_b);
+    uint8_t  pt_b_out[sizeof(plaintext)];
+    word32   pt_b_out_len = sizeof(pt_b_out);
+
+    /* wolfCrypt oracle RSA key (public key only, for Part A encrypt) */
+    RsaKey oracle_rsa;
+    WC_RNG oracle_rng;
+    int    oracle_rsa_init = 0;
+    int    oracle_rng_init = 0;
+
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "rsa_oaep: C_Initialize");
+    if (rv != CKR_OK) { unsetenv("WOLFP11_SOFT_KEYSTORE_PATH"); return f; }
+
+    rv = C_OpenSession(0, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL_PTR, NULL_PTR, &hSess);
+    f += check(rv == CKR_OK, "rsa_oaep: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)test_pin, pin_len);
+    f += check(rv == CKR_OK, "rsa_oaep: C_Login");
+
+    rv = C_GenerateKeyPair(hSess, &gen_mech,
+                            pub_tmpl, 1u,
+                            NULL_PTR, 0,
+                            &hPub, &hPriv);
+    f += check(rv == CKR_OK, "rsa_oaep: C_GenerateKeyPair (RSA-2048)");
+    f += check(hPub != 0 && hPriv != 0, "rsa_oaep: key handles non-zero");
+    if (rv != CKR_OK || hPub == 0 || hPriv == 0) goto cleanup;
+
+    /* Export N and E for the Part A oracle */
+    n_attr.ulValueLen = sizeof(n_buf);
+    e_attr.ulValueLen = sizeof(e_buf);
+    rv = C_GetAttributeValue(hSess, hPub, &n_attr, 1);
+    f += check(rv == CKR_OK, "rsa_oaep: export CKA_MODULUS");
+    rv = C_GetAttributeValue(hSess, hPub, &e_attr, 1);
+    f += check(rv == CKR_OK, "rsa_oaep: export CKA_PUBLIC_EXPONENT");
+    if (rv != CKR_OK) goto cleanup;
+    n_len = n_attr.ulValueLen;
+    e_len = e_attr.ulValueLen;
+
+    /* Build wolfCrypt oracle public key */
+    wc_InitRng(&oracle_rng);
+    oracle_rng_init = 1;
+    wc_InitRsaKey(&oracle_rsa, NULL);
+    oracle_rsa_init = 1;
+    wret = wc_RsaPublicKeyDecodeRaw(n_buf, (word32)n_len,
+                                     e_buf, (word32)e_len, &oracle_rsa);
+    f += check(wret == 0, "rsa_oaep: oracle wc_RsaPublicKeyDecodeRaw");
+    if (wret != 0) goto cleanup;
+
+    /* Set up OAEP mechanism: SHA-256, MGF1-SHA256, no label */
+    memset(&oaep_params, 0, sizeof(oaep_params));
+    oaep_params.hashAlg        = CKM_SHA256;
+    oaep_params.mgf            = CKG_MGF1_SHA256;
+    oaep_params.source         = 0;
+    oaep_params.pSourceData    = NULL_PTR;
+    oaep_params.ulSourceDataLen = 0;
+    oaep_mech.mechanism        = CKM_RSA_PKCS_OAEP;
+    oaep_mech.pParameter       = &oaep_params;
+    oaep_mech.ulParameterLen   = (CK_ULONG)sizeof(oaep_params);
+
+    /* ---- Part A: wolfCrypt oracle encrypts, wolfP11 C_Decrypt verifies ---- */
+    ct_a_len = wc_RsaPublicEncrypt_ex(
+        (const byte *)plaintext, (word32)pt_len,
+        ct_a, (word32)sizeof(ct_a), &oracle_rsa, &oracle_rng,
+        WC_RSA_OAEP_PAD, WC_HASH_TYPE_SHA256, WC_MGF1SHA256, NULL, 0);
+    f += check(ct_a_len > 0, "rsa_oaep: oracle wc_RsaPublicEncrypt_ex (A)");
+
+    if (ct_a_len > 0) {
+        rv = C_DecryptInit(hSess, &oaep_mech, hPriv);
+        f += check(rv == CKR_OK, "rsa_oaep: C_DecryptInit (A)");
+        if (rv == CKR_OK) {
+            pt_a_out_len = sizeof(pt_a_out);
+            rv = C_Decrypt(hSess,
+                            ct_a, (CK_ULONG)ct_a_len,
+                            pt_a_out, &pt_a_out_len);
+            f += check(rv == CKR_OK, "rsa_oaep: C_Decrypt (A)");
+            f += check(rv == CKR_OK && pt_a_out_len == pt_len,
+                       "rsa_oaep: C_Decrypt output length correct (A)");
+            f += check(rv == CKR_OK &&
+                       memcmp(pt_a_out, plaintext, (size_t)pt_len) == 0,
+                       "rsa_oaep: C_Decrypt recovered plaintext matches (A)");
+        }
+    }
+
+    /* ---- Part B: wolfP11 C_Encrypt, oracle wc_RsaPrivateDecrypt_ex ------- */
+    rv = C_EncryptInit(hSess, &oaep_mech, hPub);
+    f += check(rv == CKR_OK, "rsa_oaep: C_EncryptInit (B)");
+    if (rv == CKR_OK) {
+        ct_b_len = sizeof(ct_b);
+        rv = C_Encrypt(hSess,
+                        (CK_BYTE_PTR)(void *)(uintptr_t)plaintext, pt_len,
+                        ct_b, &ct_b_len);
+        f += check(rv == CKR_OK, "rsa_oaep: C_Encrypt (B)");
+        f += check(rv == CKR_OK && ct_b_len == 256u,
+                   "rsa_oaep: C_Encrypt output length == 256 (B)");
+
+        if (rv == CKR_OK) {
+            /* Oracle: direct wc_RsaPrivateDecrypt_ex bypassing PKCS#11 session */
+            pt_b_out_len = sizeof(pt_b_out);
+            wret = wp11_test_soft_rsa_oaep_decrypt(
+                hPriv,
+                ct_b, (word32)ct_b_len,
+                pt_b_out, (word32)sizeof(pt_b_out), &pt_b_out_len,
+                (int)WC_HASH_TYPE_SHA256, WC_MGF1SHA256);
+            f += check(wret == 0,
+                       "rsa_oaep: oracle decrypt succeeds (B)");
+            f += check(wret == 0 && pt_b_out_len == pt_len,
+                       "rsa_oaep: oracle output length correct (B)");
+            f += check(wret == 0 &&
+                       memcmp(pt_b_out, plaintext, (size_t)pt_len) == 0,
+                       "rsa_oaep: oracle recovered plaintext matches (B)");
+        }
+    }
+
+cleanup:
+    if (oracle_rsa_init) wc_FreeRsaKey(&oracle_rsa);
+    if (oracle_rng_init) wc_FreeRng(&oracle_rng);
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
+    return f;
+}
+
+/* -------------------------------------------------------------------------
+ * test_soft_rsa_pss
+ *
+ * Verifies CKM_RSA_PKCS_PSS on the soft token using cross-validation:
+ *   Part A: wolfP11 C_Sign -> oracle wc_RsaPSS_VerifyCheck (public key only).
+ *   Part B: oracle wc_RsaPSS_Sign (private key from exported DER) -> wolfP11 C_Verify.
+ *
+ * CLAUDE.md oracle rule: both oracles use wolfCrypt keys loaded from exported
+ * N/E (Part A) and PKCS#1 private key DER (Part B), independent of the
+ * wolfP11 session state.
+ * ---------------------------------------------------------------------- */
+#ifdef WC_RSA_PSS
+/* Forward declaration for the test helper defined in src/wp11_pkcs11.c */
+int wp11_test_soft_rsa_export_priv_der(CK_OBJECT_HANDLE hKey,
+                                        uint8_t *buf, word32 buflen);
+
+static int test_soft_rsa_pss(void)
+{
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess = 0;
+    CK_OBJECT_HANDLE  hPub  = 0;
+    CK_OBJECT_HANDLE  hPriv = 0;
+    int               f     = 0;
+    int               wret;
+
+    static const CK_UTF8CHAR test_pin[] = "softtest";
+    static const CK_ULONG    pin_len    = 8;
+
+    /* RSA-2048 key pair generation */
+    static const CK_ULONG mod_bits = 2048u;
+    CK_ATTRIBUTE pub_tmpl[] = {
+        { CKA_MODULUS_BITS, (CK_VOID_PTR)&mod_bits, sizeof(mod_bits) }
+    };
+    CK_MECHANISM gen_mech = { CKM_RSA_PKCS_KEY_PAIR_GEN, NULL_PTR, 0 };
+
+    /* PSS mechanism params: SHA-256 hash, MGF1-SHA256, salt=0 (wolfCrypt
+     * default: salt length equals hash length; s_len is advisory only) */
+    CK_RSA_PKCS_PSS_PARAMS pss_params;
+    CK_MECHANISM           pss_mech;
+
+    /* Exported public key N, E for Part A oracle */
+    uint8_t  n_buf[256];
+    uint8_t  e_buf[32];
+    CK_ATTRIBUTE n_attr = { CKA_MODULUS,         n_buf, sizeof(n_buf) };
+    CK_ATTRIBUTE e_attr = { CKA_PUBLIC_EXPONENT, e_buf, sizeof(e_buf) };
+    CK_ULONG n_len, e_len;
+
+    /* Exported private key DER for Part B oracle */
+    uint8_t priv_der[2350]; /* RSA-2048 PKCS#1 DER upper bound */
+    int     priv_der_len;
+
+    /* plaintext and SHA-256 digest */
+    static const uint8_t plaintext[] = "wolfP11 RSA-PSS test";
+    static const CK_ULONG pt_len     = sizeof(plaintext) - 1u;
+    uint8_t  digest[32]; /* SHA-256 output */
+
+    /* Part A: wolfP11 sign, oracle verify */
+    uint8_t  sig_a[256];
+    CK_ULONG sig_a_len = sizeof(sig_a);
+
+    /* Part B: oracle sign, wolfP11 verify */
+    uint8_t  sig_b[256];
+    int      sig_b_len;
+
+    /* wolfCrypt oracle keys */
+    RsaKey   oracle_pub;
+    RsaKey   oracle_priv;
+    WC_RNG   oracle_rng;
+    wc_Sha256 sha256_ctx;
+    uint8_t  scratch[256];
+    int      oracle_pub_init  = 0;
+    int      oracle_priv_init = 0;
+    int      oracle_rng_init  = 0;
+    word32   idx;
+
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "rsa_pss: C_Initialize");
+    if (rv != CKR_OK) { unsetenv("WOLFP11_SOFT_KEYSTORE_PATH"); return f; }
+
+    rv = C_OpenSession(0, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL_PTR, NULL_PTR, &hSess);
+    f += check(rv == CKR_OK, "rsa_pss: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)test_pin, pin_len);
+    f += check(rv == CKR_OK, "rsa_pss: C_Login");
+
+    rv = C_GenerateKeyPair(hSess, &gen_mech,
+                            pub_tmpl, 1u, NULL_PTR, 0,
+                            &hPub, &hPriv);
+    f += check(rv == CKR_OK, "rsa_pss: C_GenerateKeyPair (RSA-2048)");
+    f += check(hPub != 0 && hPriv != 0, "rsa_pss: key handles non-zero");
+    if (rv != CKR_OK || hPub == 0 || hPriv == 0) goto cleanup;
+
+    /* Export N and E for Part A oracle */
+    n_attr.ulValueLen = sizeof(n_buf);
+    e_attr.ulValueLen = sizeof(e_buf);
+    rv = C_GetAttributeValue(hSess, hPub, &n_attr, 1);
+    f += check(rv == CKR_OK, "rsa_pss: export CKA_MODULUS");
+    rv = C_GetAttributeValue(hSess, hPub, &e_attr, 1);
+    f += check(rv == CKR_OK, "rsa_pss: export CKA_PUBLIC_EXPONENT");
+    if (rv != CKR_OK) goto cleanup;
+    n_len = n_attr.ulValueLen;
+    e_len = e_attr.ulValueLen;
+
+    /* Export private key DER for Part B oracle */
+    priv_der_len = wp11_test_soft_rsa_export_priv_der(hPriv, priv_der,
+                                                       sizeof(priv_der));
+    f += check(priv_der_len > 0, "rsa_pss: export private key DER");
+    if (priv_der_len <= 0) goto cleanup;
+
+    /* Set up PSS mechanism */
+    memset(&pss_params, 0, sizeof(pss_params));
+    pss_params.hashAlg = CKM_SHA256;
+    pss_params.mgf     = CKG_MGF1_SHA256;
+    pss_params.sLen    = 0; /* advisory; wolfCrypt uses hash-length salt */
+    pss_mech.mechanism      = CKM_RSA_PKCS_PSS;
+    pss_mech.pParameter     = &pss_params;
+    pss_mech.ulParameterLen = (CK_ULONG)sizeof(pss_params);
+
+    /* Compute SHA-256 digest of plaintext (both parts use the same digest) */
+    wc_InitSha256(&sha256_ctx);
+    wc_Sha256Update(&sha256_ctx, plaintext, (word32)pt_len);
+    wc_Sha256Final(&sha256_ctx, digest);
+
+    /* Build Part A oracle public key from N/E */
+    wc_InitRng(&oracle_rng);  oracle_rng_init  = 1;
+    wc_InitRsaKey(&oracle_pub, NULL); oracle_pub_init = 1;
+    wret = wc_RsaPublicKeyDecodeRaw(n_buf, (word32)n_len,
+                                     e_buf, (word32)e_len, &oracle_pub);
+    f += check(wret == 0, "rsa_pss: oracle wc_RsaPublicKeyDecodeRaw");
+    if (wret != 0) goto cleanup;
+
+    /* Build Part B oracle private key from exported DER */
+    wc_InitRsaKey(&oracle_priv, NULL); oracle_priv_init = 1;
+    idx  = 0;
+    wret = wc_RsaPrivateKeyDecode(priv_der, &idx, &oracle_priv,
+                                   (word32)priv_der_len);
+    f += check(wret == 0, "rsa_pss: oracle wc_RsaPrivateKeyDecode");
+    if (wret != 0) goto cleanup;
+
+    /* ---- Part A: wolfP11 C_Sign, oracle wc_RsaPSS_VerifyCheck ---- */
+    rv = C_SignInit(hSess, &pss_mech, hPriv);
+    f += check(rv == CKR_OK, "rsa_pss: C_SignInit (A)");
+    if (rv == CKR_OK) {
+        sig_a_len = sizeof(sig_a);
+        rv = C_Sign(hSess, digest, (CK_ULONG)sizeof(digest),
+                    sig_a, &sig_a_len);
+        f += check(rv == CKR_OK, "rsa_pss: C_Sign (A)");
+        f += check(rv == CKR_OK && sig_a_len == 256u,
+                   "rsa_pss: C_Sign output length == 256 (A)");
+
+        if (rv == CKR_OK) {
+            /* Oracle verify: wc_RsaPSS_VerifyCheck on independently-loaded
+             * public key.  Returns >= 0 on successful verification. */
+            wret = wc_RsaPSS_VerifyCheck(sig_a, (word32)sig_a_len,
+                                          scratch, sizeof(scratch),
+                                          digest, sizeof(digest),
+                                          WC_HASH_TYPE_SHA256, WC_MGF1SHA256,
+                                          &oracle_pub);
+            f += check(wret >= 0, "rsa_pss: oracle verify succeeds (A)");
+        }
+    }
+
+    /* ---- Part B: oracle wc_RsaPSS_Sign, wolfP11 C_Verify ---- */
+    sig_b_len = wc_RsaPSS_Sign(digest, sizeof(digest),
+                                sig_b, sizeof(sig_b),
+                                WC_HASH_TYPE_SHA256, WC_MGF1SHA256,
+                                &oracle_priv, &oracle_rng);
+    f += check(sig_b_len == 256, "rsa_pss: oracle wc_RsaPSS_Sign succeeds (B)");
+
+    if (sig_b_len == 256) {
+        rv = C_VerifyInit(hSess, &pss_mech, hPub);
+        f += check(rv == CKR_OK, "rsa_pss: C_VerifyInit (B)");
+        if (rv == CKR_OK) {
+            rv = C_Verify(hSess, digest, (CK_ULONG)sizeof(digest),
+                          sig_b, (CK_ULONG)sig_b_len);
+            f += check(rv == CKR_OK, "rsa_pss: C_Verify (B)");
+        }
+    }
+
+    /* ---- Part C: explicit sLen=32 in C_Sign; oracle verifies -------------
+     * Tests the non-zero sLen -> wolfCrypt saltLen mapping in C_SignInit.
+     * sLen=0 (Part A/B) maps to RSA_PSS_SALT_LEN_DEFAULT (-1) which wolfCrypt
+     * interprets as "hash-length salt".  Here sLen=32 (SHA-256 hash length)
+     * is passed explicitly; it must produce the same result as the default
+     * but through a different code path. wc_RsaPSS_VerifyCheck verifies with
+     * hash-length salt (SHA-256 = 32 bytes), confirming the signature is valid
+     * for a 32-byte explicit salt. */
+    {
+        uint8_t  sig_c[256];
+        CK_ULONG sig_c_len;
+
+        pss_params.sLen                = 32u; /* SHA-256 hash length in bytes */
+        pss_mech.mechanism             = CKM_RSA_PKCS_PSS;
+        pss_mech.pParameter            = &pss_params;
+        pss_mech.ulParameterLen        = (CK_ULONG)sizeof(pss_params);
+
+        rv = C_SignInit(hSess, &pss_mech, hPriv);
+        f += check(rv == CKR_OK, "rsa_pss: C_SignInit (C, sLen=32)");
+        if (rv == CKR_OK) {
+            sig_c_len = (CK_ULONG)sizeof(sig_c);
+            rv = C_Sign(hSess, digest, (CK_ULONG)sizeof(digest),
+                        sig_c, &sig_c_len);
+            f += check(rv == CKR_OK, "rsa_pss: C_Sign (C, sLen=32)");
+            if (rv == CKR_OK) {
+                wret = wc_RsaPSS_VerifyCheck(sig_c, (word32)sig_c_len,
+                                              scratch, sizeof(scratch),
+                                              digest, sizeof(digest),
+                                              WC_HASH_TYPE_SHA256, WC_MGF1SHA256,
+                                              &oracle_pub);
+                f += check(wret >= 0,
+                           "rsa_pss: oracle verifies C_Sign with explicit sLen=32 (C)");
+            }
+        }
+        pss_params.sLen = 0u; /* restore for subsequent steps */
+    }
+
+    /* ---- Part D: C_Sign -> C_Verify round-trip (sLen=0) -----------------
+     * Tests that sign and verify compose on the same session/key.
+     * sig_a was produced in Part A and oracle-verified there; here we check
+     * that C_Verify also accepts it, catching any divergence between the
+     * C_Sign code path and the C_Verify code path. */
+    {
+        rv = C_VerifyInit(hSess, &pss_mech, hPub);
+        f += check(rv == CKR_OK, "rsa_pss: C_VerifyInit (D, round-trip)");
+        if (rv == CKR_OK) {
+            rv = C_Verify(hSess, digest, (CK_ULONG)sizeof(digest),
+                          sig_a, (CK_ULONG)sig_a_len);
+            f += check(rv == CKR_OK,
+                       "rsa_pss: C_Sign -> C_Verify round-trip (D)");
+        }
+    }
+
+cleanup:
+    if (oracle_pub_init)  wc_FreeRsaKey(&oracle_pub);
+    if (oracle_priv_init) wc_FreeRsaKey(&oracle_priv);
+    if (oracle_rng_init)  wc_FreeRng(&oracle_rng);
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
+    return f;
+}
+#endif /* WC_RSA_PSS */
+
+/* -------------------------------------------------------------------------
+ * test_soft_aes_gcm
+ *
+ * Verifies CKM_AES_GCM on the soft token using cross-validation:
+ *   Part A: wolfP11 C_Encrypt output verified by wolfCrypt wc_AesGcmDecrypt.
+ *   Part B: wolfCrypt wc_AesGcmEncrypt output verified by wolfP11 C_Decrypt.
+ *   Part C: tampered auth tag -> C_Decrypt returns CKR_ENCRYPTED_DATA_INVALID.
+ * ---------------------------------------------------------------------- */
+static int test_soft_aes_gcm(void)
+{
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess = 0;
+    CK_OBJECT_HANDLE  hKey  = 0;
+    int               f     = 0;
+    int               wret;
+
+    static const CK_UTF8CHAR test_pin[]  = "softtest";
+    static const CK_ULONG    pin_len     = 8;
+    static const CK_ULONG    key_sz      = 32u;
+    static const CK_BBOOL    ck_true     = CK_TRUE;
+
+    CK_ATTRIBUTE gen_tmpl[] = {
+        { CKA_VALUE_LEN,   (CK_VOID_PTR)&key_sz,   sizeof(key_sz)   },
+        { CKA_EXTRACTABLE, (CK_VOID_PTR)&ck_true,  sizeof(ck_true)  }
+    };
+    CK_MECHANISM gen_mech = { CKM_AES_KEY_GEN, NULL_PTR, 0 };
+
+    /* Fixed IVs and AAD -- different for each part to avoid IV reuse */
+    static const uint8_t iv_a[12] = {
+        0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c
+    };
+    static const uint8_t aad_a[8] = {
+        0xde,0xad,0xbe,0xef,0xca,0xfe,0xba,0xbe
+    };
+    static const uint8_t iv_b[12] = {
+        0xf0,0xe1,0xd2,0xc3,0xb4,0xa5,0x96,0x87,0x78,0x69,0x5a,0x4b
+    };
+
+    static const uint8_t plaintext[] = "wolfP11 AES-GCM test";
+    static const CK_ULONG pt_len    = sizeof(plaintext) - 1u;
+    static const CK_ULONG tag_bits  = 128u;
+    static const word32   tag_len   = 16u;
+
+    uint8_t    raw_key[32];
+    CK_ATTRIBUTE key_attr = { CKA_VALUE, raw_key, sizeof(raw_key) };
+
+    /* Part A: wolfP11 encrypts -> oracle decrypts */
+    uint8_t  ct_a[sizeof(plaintext) - 1u + 16u];
+    CK_ULONG ct_a_len;
+    uint8_t  pt_a_out[sizeof(plaintext) - 1u];
+
+    /* Part B/C: oracle encrypts -> wolfP11 decrypts */
+    uint8_t  ct_b[sizeof(plaintext) - 1u];
+    uint8_t  tag_b[16u];
+    uint8_t  combined_bc[sizeof(plaintext) - 1u + 16u];
+    uint8_t  pt_b_out[sizeof(plaintext) - 1u];
+    CK_ULONG pt_b_out_len;
+
+    Aes oracle_aes;
+    int oracle_init = 0;
+
+    CK_GCM_PARAMS gcm_a;
+    CK_GCM_PARAMS gcm_b;
+    CK_MECHANISM  mech_enc_a;
+    CK_MECHANISM  mech_dec_b;
+
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "aes_gcm: C_Initialize");
+    if (rv != CKR_OK) { unsetenv("WOLFP11_SOFT_KEYSTORE_PATH"); return f; }
+
+    rv = C_OpenSession(0, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL_PTR, NULL_PTR, &hSess);
+    f += check(rv == CKR_OK, "aes_gcm: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)test_pin, pin_len);
+    f += check(rv == CKR_OK, "aes_gcm: C_Login");
+
+    rv = C_GenerateKey(hSess, &gen_mech,
+                        gen_tmpl, sizeof(gen_tmpl)/sizeof(gen_tmpl[0]),
+                        &hKey);
+    f += check(rv == CKR_OK, "aes_gcm: C_GenerateKey (AES-256)");
+    f += check(hKey != 0,    "aes_gcm: key handle non-zero");
+    if (rv != CKR_OK || hKey == 0) goto cleanup;
+
+    /* Extract raw key for the oracle (key must be extractable) */
+    key_attr.ulValueLen = sizeof(raw_key);
+    rv = C_GetAttributeValue(hSess, hKey, &key_attr, 1);
+    f += check(rv == CKR_OK && key_attr.ulValueLen == 32u,
+               "aes_gcm: extracted 32-byte raw key");
+    if (rv != CKR_OK || key_attr.ulValueLen != 32u) goto cleanup;
+
+    /* Init oracle AES once; reused for both Part A (decrypt) and Part B (encrypt) */
+    wc_AesInit(&oracle_aes, NULL, INVALID_DEVID);
+    oracle_init = 1;
+    wret = wc_AesGcmSetKey(&oracle_aes, raw_key, (word32)key_attr.ulValueLen);
+    f += check(wret == 0, "aes_gcm: oracle wc_AesGcmSetKey");
+    if (wret != 0) goto cleanup;
+
+    /* ---- Part A: wolfP11 C_Encrypt -> wolfCrypt oracle decrypts --------- */
+    memset(&gcm_a, 0, sizeof(gcm_a));
+    gcm_a.pIv       = (CK_BYTE_PTR)(void *)(uintptr_t)iv_a;
+    gcm_a.ulIvLen   = (CK_ULONG)sizeof(iv_a);
+    gcm_a.pAAD      = (CK_BYTE_PTR)(void *)(uintptr_t)aad_a;
+    gcm_a.ulAADLen  = (CK_ULONG)sizeof(aad_a);
+    gcm_a.ulTagBits = tag_bits;
+    mech_enc_a.mechanism      = CKM_AES_GCM;
+    mech_enc_a.pParameter     = &gcm_a;
+    mech_enc_a.ulParameterLen = (CK_ULONG)sizeof(gcm_a);
+
+    rv = C_EncryptInit(hSess, &mech_enc_a, hKey);
+    f += check(rv == CKR_OK, "aes_gcm: C_EncryptInit (A)");
+    if (rv == CKR_OK) {
+        ct_a_len = (CK_ULONG)sizeof(ct_a);
+        rv = C_Encrypt(hSess, (CK_BYTE_PTR)(void *)(uintptr_t)plaintext,
+                        pt_len, ct_a, &ct_a_len);
+        f += check(rv == CKR_OK, "aes_gcm: C_Encrypt (A)");
+        f += check(ct_a_len == pt_len + (CK_ULONG)tag_len,
+                   "aes_gcm: C_Encrypt output length = pt_len+16 (A)");
+
+        if (rv == CKR_OK && ct_a_len == pt_len + (CK_ULONG)tag_len) {
+            /* Oracle: wc_AesGcmDecrypt uses the raw key to independently verify */
+            wret = wc_AesGcmDecrypt(&oracle_aes,
+                       pt_a_out,
+                       ct_a,          (word32)pt_len,
+                       iv_a,          (word32)sizeof(iv_a),
+                       ct_a + pt_len, tag_len,
+                       aad_a,         (word32)sizeof(aad_a));
+            f += check(wret == 0,
+                       "aes_gcm: oracle wc_AesGcmDecrypt succeeds (A)");
+            f += check(wret == 0 &&
+                       memcmp(pt_a_out, plaintext, (size_t)pt_len) == 0,
+                       "aes_gcm: oracle recovered plaintext matches (A)");
+        }
+    }
+
+    /* ---- Part B: wolfCrypt oracle encrypts -> wolfP11 C_Decrypt --------- */
+    wret = wc_AesGcmEncrypt(&oracle_aes,
+               ct_b, plaintext, (word32)pt_len,
+               iv_b,  (word32)sizeof(iv_b),
+               tag_b, tag_len,
+               NULL,  0);
+    f += check(wret == 0, "aes_gcm: oracle wc_AesGcmEncrypt (B)");
+
+    if (wret == 0) {
+        memcpy(combined_bc,          ct_b,  (size_t)pt_len);
+        memcpy(combined_bc + pt_len, tag_b, (size_t)tag_len);
+
+        memset(&gcm_b, 0, sizeof(gcm_b));
+        gcm_b.pIv       = (CK_BYTE_PTR)(void *)(uintptr_t)iv_b;
+        gcm_b.ulIvLen   = (CK_ULONG)sizeof(iv_b);
+        gcm_b.pAAD      = NULL_PTR;
+        gcm_b.ulAADLen  = 0;
+        gcm_b.ulTagBits = tag_bits;
+        mech_dec_b.mechanism      = CKM_AES_GCM;
+        mech_dec_b.pParameter     = &gcm_b;
+        mech_dec_b.ulParameterLen = (CK_ULONG)sizeof(gcm_b);
+
+        rv = C_DecryptInit(hSess, &mech_dec_b, hKey);
+        f += check(rv == CKR_OK, "aes_gcm: C_DecryptInit (B)");
+        if (rv == CKR_OK) {
+            pt_b_out_len = (CK_ULONG)sizeof(pt_b_out);
+            rv = C_Decrypt(hSess,
+                            combined_bc, pt_len + (CK_ULONG)tag_len,
+                            pt_b_out,   &pt_b_out_len);
+            f += check(rv == CKR_OK, "aes_gcm: C_Decrypt (B)");
+            f += check(rv == CKR_OK && pt_b_out_len == pt_len,
+                       "aes_gcm: C_Decrypt output length == pt_len (B)");
+            f += check(rv == CKR_OK &&
+                       memcmp(pt_b_out, plaintext, (size_t)pt_len) == 0,
+                       "aes_gcm: C_Decrypt recovered plaintext matches (B)");
+        }
+
+        /* ---- Part C: tampered tag -> CKR_ENCRYPTED_DATA_INVALID ---------- */
+        combined_bc[pt_len] ^= 0xFFu;   /* corrupt first byte of auth tag */
+
+        rv = C_DecryptInit(hSess, &mech_dec_b, hKey);
+        f += check(rv == CKR_OK, "aes_gcm: C_DecryptInit (C)");
+        if (rv == CKR_OK) {
+            pt_b_out_len = (CK_ULONG)sizeof(pt_b_out);
+            rv = C_Decrypt(hSess,
+                            combined_bc, pt_len + (CK_ULONG)tag_len,
+                            pt_b_out,   &pt_b_out_len);
+            f += check(rv == CKR_ENCRYPTED_DATA_INVALID,
+                       "aes_gcm: C_Decrypt rejects tampered ciphertext (C)");
+        }
+    }
+
+cleanup:
+    if (oracle_init) wc_AesFree(&oracle_aes);
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
+    return f;
+}
+
 #ifdef WOLFP11_CFG_USB_FLASH_BACKEND
+/* -------------------------------------------------------------------------
+ * test_rsa_oaep_vector_oracle
+ *
+ * wolfP11-444s: Independent oracle test for C_Decrypt RSA-OAEP.
+ *
+ * The private key and ciphertext were generated by pyca/cryptography
+ * (https://cryptography.io), an RSA-OAEP implementation entirely independent
+ * of wolfCrypt.  Unlike test_soft_rsa_oaep which uses wc_RsaPublicEncrypt_ex
+ * and wp11_test_soft_rsa_oaep_decrypt (both wolfCrypt), this test verifies
+ * that C_Decrypt recovers the correct plaintext from a ciphertext produced
+ * by a different RSA-OAEP stack.
+ *
+ * Generation command (run once to produce the constants below):
+ *   python3 -c "
+ *   from cryptography.hazmat.primitives.asymmetric import rsa, padding
+ *   from cryptography.hazmat.primitives import hashes, serialization
+ *   key = rsa.generate_private_key(65537, 2048)
+ *   ct = key.public_key().encrypt(b'wolfP11 RSA-OAEP test',
+ *       padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),
+ *                    algorithm=hashes.SHA256(), label=None))
+ *   priv_der = key.private_bytes(
+ *       serialization.Encoding.DER,
+ *       serialization.PrivateFormat.TraditionalOpenSSL,
+ *       serialization.NoEncryption())
+ *   # print as C hex arrays...
+ *   "
+ * ---------------------------------------------------------------------- */
+static int test_rsa_oaep_vector_oracle(void)
+{
+    /* RSA-2048 PKCS#1 private key (DER, 1192 bytes) -- pyca generated */
+    static const uint8_t oaep_tv_priv_der[] = {
+        0x30, 0x82, 0x04, 0xa4, 0x02, 0x01, 0x00, 0x02, 0x82, 0x01, 0x01, 0x00, 0xa4, 0x0f, 0x3c, 0x0d,
+        0x44, 0xca, 0x2b, 0x74, 0x34, 0xce, 0x6e, 0xa0, 0xb2, 0x85, 0xd6, 0xc0, 0x4d, 0x84, 0xe0, 0x62,
+        0x1f, 0xe1, 0xc6, 0xd0, 0x6e, 0x3d, 0xe1, 0x7b, 0xc0, 0xab, 0x55, 0x92, 0x5c, 0x53, 0xc1, 0xc2,
+        0x98, 0x03, 0x09, 0x17, 0x76, 0xed, 0xa4, 0xe7, 0x89, 0xa5, 0x2d, 0x99, 0x15, 0x6c, 0x4f, 0x3e,
+        0x47, 0x31, 0xf0, 0x3d, 0xd1, 0x28, 0x97, 0x9d, 0x94, 0xf6, 0xbd, 0x07, 0xa7, 0xba, 0x14, 0xbb,
+        0x21, 0xe1, 0xb1, 0x94, 0x41, 0xda, 0x7b, 0x54, 0xee, 0x40, 0xd0, 0xa4, 0xbb, 0x17, 0x2b, 0x15,
+        0x45, 0xbb, 0x2c, 0x47, 0x16, 0xcf, 0x37, 0xbf, 0x6a, 0x4f, 0xd3, 0x7e, 0x8d, 0x5f, 0x1c, 0xbb,
+        0x67, 0xe8, 0x70, 0x36, 0x58, 0x31, 0x67, 0x4c, 0xd0, 0x56, 0x9a, 0x20, 0xc5, 0x30, 0xfe, 0x90,
+        0xb6, 0x16, 0x55, 0xc0, 0xf7, 0x68, 0xec, 0x8c, 0x7c, 0xad, 0xa8, 0x3a, 0x66, 0x04, 0x20, 0x05,
+        0x1d, 0xfd, 0x52, 0x52, 0xc0, 0xbc, 0x8a, 0x20, 0x98, 0x59, 0xd9, 0x47, 0xc9, 0x28, 0x78, 0x86,
+        0xe1, 0x87, 0xb2, 0x99, 0xd0, 0x26, 0x8d, 0xf0, 0xae, 0x6a, 0x62, 0x7e, 0xe6, 0x28, 0x5e, 0xd3,
+        0xc1, 0x6a, 0x2e, 0x54, 0xd6, 0x43, 0xaa, 0x70, 0xb7, 0x2a, 0x1d, 0x7a, 0x90, 0x27, 0xb7, 0xc1,
+        0xac, 0x78, 0xc2, 0x00, 0xb6, 0xcd, 0x7d, 0xb0, 0x0c, 0xd7, 0xdc, 0x62, 0x85, 0xd3, 0xff, 0x0f,
+        0x42, 0x28, 0xe9, 0xa0, 0x94, 0x76, 0x38, 0x1e, 0x43, 0x71, 0xc3, 0xcc, 0x11, 0xb9, 0xc4, 0xee,
+        0x3d, 0x03, 0xfd, 0xc9, 0x67, 0xf0, 0x84, 0x9a, 0x2f, 0xef, 0xd3, 0x58, 0x4f, 0x8d, 0x06, 0xb4,
+        0x69, 0x4a, 0x57, 0x76, 0xa1, 0x1e, 0xc2, 0x1c, 0xfe, 0x4b, 0xcb, 0xff, 0x20, 0xd9, 0xd9, 0xdd,
+        0xc2, 0x08, 0x3e, 0xba, 0x64, 0xf8, 0x0f, 0x6b, 0xc5, 0x43, 0x70, 0xb7, 0x02, 0x03, 0x01, 0x00,
+        0x01, 0x02, 0x82, 0x01, 0x00, 0x18, 0xbf, 0x6b, 0x91, 0x9c, 0xd4, 0xda, 0x65, 0x37, 0x2a, 0x04,
+        0xaa, 0x1d, 0x03, 0xef, 0x77, 0x26, 0xba, 0x6a, 0x96, 0xa2, 0xb4, 0x8e, 0x27, 0x16, 0xda, 0x22,
+        0xcf, 0x66, 0x2a, 0xf2, 0x47, 0x97, 0xc1, 0xd2, 0xb2, 0xa5, 0xf7, 0x9f, 0x41, 0x78, 0xe1, 0x34,
+        0x44, 0xf1, 0x10, 0x87, 0xa6, 0x56, 0x02, 0xf6, 0x99, 0x30, 0x68, 0x2a, 0x13, 0x49, 0x1f, 0xd4,
+        0x6f, 0x22, 0xef, 0x6d, 0x68, 0x60, 0x36, 0xc3, 0xb5, 0xce, 0xd0, 0x9a, 0xd7, 0x00, 0x70, 0x12,
+        0xb6, 0xa7, 0x12, 0x03, 0xe7, 0x35, 0x89, 0xb3, 0x28, 0x0c, 0x52, 0xc5, 0xc5, 0x1b, 0x7d, 0xba,
+        0xad, 0x17, 0x3e, 0x5f, 0x6a, 0xf1, 0xac, 0x6d, 0x4b, 0x1f, 0xcb, 0x82, 0x51, 0xd0, 0x4f, 0xf3,
+        0x83, 0x34, 0xd2, 0x3b, 0x81, 0xc1, 0xfd, 0x38, 0x09, 0x60, 0x4e, 0x52, 0x35, 0x3f, 0x9d, 0x06,
+        0x41, 0xd2, 0xf4, 0xe7, 0x31, 0x5a, 0x2a, 0x06, 0x5a, 0x95, 0xb6, 0xe7, 0xdf, 0xe6, 0x67, 0xd8,
+        0x95, 0x43, 0x44, 0x4c, 0x2a, 0x02, 0xc4, 0x56, 0x7a, 0xf0, 0x7e, 0x03, 0xf7, 0x21, 0xc5, 0x1a,
+        0xbd, 0xdd, 0x8c, 0xf6, 0xce, 0xc4, 0x1b, 0xe8, 0x74, 0xb0, 0x0d, 0xe2, 0x6b, 0x27, 0x51, 0xa7,
+        0xf6, 0xa7, 0x67, 0x68, 0x1c, 0x4f, 0xe1, 0x2d, 0xe4, 0xed, 0xd1, 0x78, 0xc0, 0xe5, 0xbf, 0x74,
+        0x90, 0x7e, 0x5a, 0xf8, 0x29, 0xce, 0xfb, 0x0b, 0x77, 0x94, 0x9d, 0x1e, 0x15, 0x54, 0xcb, 0x7e,
+        0xbe, 0xf9, 0x70, 0x47, 0xbe, 0xbd, 0x9c, 0x2c, 0x51, 0x0a, 0xdf, 0xc6, 0xa6, 0xd8, 0x89, 0xd6,
+        0x02, 0x8a, 0xf8, 0x16, 0x28, 0x03, 0x54, 0xb2, 0x7e, 0x9d, 0x7b, 0x1e, 0x5f, 0x04, 0x4b, 0x9f,
+        0xc2, 0xca, 0xaa, 0xe4, 0x60, 0x53, 0x30, 0x87, 0x25, 0xfa, 0x4d, 0xb5, 0x44, 0xe0, 0xa0, 0x81,
+        0x19, 0x94, 0x2b, 0x58, 0x11, 0x02, 0x81, 0x81, 0x00, 0xcd, 0x1c, 0xf8, 0x24, 0xc1, 0xce, 0x86,
+        0x15, 0xd5, 0x72, 0xed, 0xd8, 0x1f, 0x25, 0x8e, 0xdc, 0x06, 0x3c, 0x03, 0x43, 0x3e, 0x9c, 0x03,
+        0x02, 0xd6, 0xb1, 0x12, 0x80, 0x96, 0x45, 0x68, 0x1c, 0x22, 0x2c, 0x82, 0xc7, 0xe3, 0x5f, 0x2f,
+        0x3e, 0xfd, 0xe4, 0x75, 0xf8, 0xc7, 0xe2, 0xf5, 0xf7, 0x56, 0xd7, 0x22, 0xe9, 0xf1, 0x47, 0xba,
+        0xd9, 0x39, 0xfb, 0x9e, 0xc6, 0x7b, 0x2c, 0x8b, 0x93, 0x6e, 0x3d, 0x18, 0x42, 0x06, 0xd0, 0xb8,
+        0xd3, 0x58, 0x40, 0xc3, 0x7c, 0x07, 0xb7, 0xcb, 0xeb, 0xde, 0x72, 0xce, 0xe6, 0x42, 0x52, 0x9d,
+        0x76, 0x98, 0xe0, 0xff, 0x6d, 0x78, 0x13, 0x1e, 0x8b, 0x3d, 0x0a, 0x4b, 0xb3, 0x3a, 0xf2, 0x84,
+        0x66, 0xc5, 0x61, 0x81, 0x40, 0x31, 0x3d, 0xa3, 0x7e, 0xbb, 0xd6, 0x5d, 0x19, 0x8e, 0xa2, 0xc4,
+        0xd7, 0x6a, 0x1a, 0x7e, 0xc9, 0xa9, 0xce, 0xe7, 0x83, 0x02, 0x81, 0x81, 0x00, 0xcc, 0xc2, 0xe3,
+        0x99, 0xd1, 0xdd, 0x22, 0x8d, 0x3d, 0x1f, 0x7a, 0xb1, 0xb7, 0x28, 0x2f, 0xbd, 0xab, 0x74, 0x1d,
+        0xdc, 0x57, 0x55, 0x6e, 0x18, 0xd1, 0xe2, 0x8a, 0x1f, 0x08, 0xe5, 0x86, 0x89, 0xa2, 0xec, 0x91,
+        0x17, 0x17, 0xb8, 0xff, 0xfd, 0x9d, 0x34, 0xce, 0xa3, 0xf9, 0x10, 0x94, 0x6f, 0x63, 0x6e, 0xfc,
+        0xfd, 0x8b, 0xb0, 0x78, 0x26, 0xbf, 0xe1, 0x16, 0xcb, 0xa9, 0x81, 0xb6, 0xeb, 0x64, 0x52, 0x1c,
+        0xc0, 0x48, 0x38, 0xe4, 0x23, 0xe8, 0xdb, 0x4c, 0xe5, 0xf8, 0x6b, 0x0f, 0x91, 0xc1, 0x28, 0xc4,
+        0xe7, 0x02, 0x7d, 0xf5, 0xee, 0x0b, 0xb0, 0x85, 0xbc, 0x0c, 0x78, 0xab, 0x79, 0xe9, 0x02, 0x16,
+        0x6e, 0xb7, 0xe7, 0xc0, 0xfb, 0xcc, 0x57, 0x46, 0xce, 0xc1, 0x34, 0x17, 0xf2, 0xea, 0x17, 0xc7,
+        0xcc, 0x30, 0xd0, 0xa4, 0x3c, 0x6c, 0xb7, 0x81, 0x8f, 0x60, 0xc7, 0x57, 0xbd, 0x02, 0x81, 0x81,
+        0x00, 0x84, 0xbd, 0xc3, 0xc5, 0x9d, 0xfb, 0x77, 0x01, 0x38, 0x53, 0x19, 0xa3, 0xed, 0x7c, 0x53,
+        0xf9, 0x06, 0xbb, 0xdd, 0xec, 0xad, 0xdf, 0x2f, 0x7f, 0xad, 0xcb, 0x88, 0xca, 0xd8, 0xf5, 0x70,
+        0x0c, 0x0c, 0xfd, 0xbb, 0x61, 0x7b, 0x3f, 0x85, 0x87, 0x01, 0xae, 0xd1, 0xbe, 0x40, 0x36, 0x1c,
+        0xb2, 0x86, 0x6b, 0xd2, 0x77, 0x8e, 0x23, 0xba, 0xc3, 0x8c, 0x67, 0xcf, 0xf8, 0x69, 0x8c, 0x89,
+        0x83, 0xcf, 0x2b, 0x10, 0xc0, 0xe2, 0x42, 0x3f, 0xea, 0xde, 0xc9, 0x82, 0xf9, 0x88, 0xd1, 0x24,
+        0xd2, 0xaf, 0xf2, 0xa2, 0xfd, 0x97, 0x5c, 0x79, 0xf5, 0x5f, 0xb8, 0xf4, 0xf5, 0x36, 0x69, 0x41,
+        0x32, 0x21, 0x3d, 0xc1, 0x81, 0xeb, 0x9b, 0x39, 0x9e, 0x7d, 0x0c, 0xbe, 0x25, 0xf9, 0xf8, 0x07,
+        0x10, 0x24, 0xa5, 0xf5, 0x38, 0x6d, 0xfb, 0xde, 0xe1, 0xfe, 0x13, 0xc9, 0x8b, 0xdf, 0x2e, 0x3c,
+        0xdb, 0x02, 0x81, 0x81, 0x00, 0xc4, 0x90, 0x1e, 0x2f, 0xae, 0xa0, 0x2b, 0x28, 0x0c, 0xd2, 0x28,
+        0x55, 0x6b, 0xef, 0x1f, 0x0d, 0x64, 0x06, 0xff, 0x17, 0x63, 0x9b, 0x36, 0x2a, 0x8b, 0x69, 0x7e,
+        0x90, 0x56, 0x59, 0x08, 0x73, 0x1e, 0x3d, 0x1c, 0xf7, 0x5f, 0x25, 0x90, 0x51, 0x25, 0x55, 0xe9,
+        0x3c, 0xcd, 0xbe, 0xd5, 0xcf, 0xac, 0x53, 0x82, 0x77, 0xdf, 0x5e, 0x53, 0xa9, 0x57, 0x2f, 0xbc,
+        0x53, 0x5c, 0x70, 0x92, 0x69, 0x9c, 0x0f, 0x9b, 0x5c, 0x16, 0xb8, 0xce, 0x81, 0x8e, 0x6a, 0xdf,
+        0x82, 0x30, 0x9c, 0x8e, 0x00, 0xac, 0xbd, 0xf7, 0x6f, 0x90, 0x1b, 0xdd, 0x37, 0x5c, 0x6f, 0x63,
+        0xa2, 0x67, 0x12, 0x7c, 0x02, 0x76, 0xe5, 0x33, 0x25, 0xac, 0x53, 0xc5, 0x15, 0xb3, 0x4e, 0xe1,
+        0x41, 0x5f, 0x85, 0x23, 0xac, 0x64, 0x7e, 0xd9, 0xa5, 0x32, 0x03, 0x48, 0x76, 0x5d, 0x23, 0x38,
+        0x33, 0xac, 0x83, 0x10, 0xbd, 0x02, 0x81, 0x80, 0x57, 0x1c, 0x48, 0x37, 0xc6, 0x3b, 0xfd, 0xb8,
+        0x7e, 0xde, 0xe8, 0x7b, 0xe7, 0x21, 0x92, 0xfe, 0x93, 0xa4, 0x32, 0x16, 0xa5, 0x2e, 0xe4, 0x6c,
+        0xf6, 0xc0, 0xb9, 0xd0, 0xfe, 0x17, 0x49, 0x3f, 0x87, 0x18, 0x94, 0xdb, 0xbb, 0xe7, 0x36, 0xa4,
+        0x8a, 0x77, 0xde, 0x83, 0x90, 0x6f, 0x7f, 0xf9, 0x02, 0xdc, 0xcf, 0x41, 0xde, 0x42, 0x58, 0x9d,
+        0x67, 0xf5, 0x52, 0xd1, 0x23, 0xd9, 0xbe, 0x1d, 0x4e, 0x63, 0xc0, 0xea, 0x7e, 0xa2, 0x26, 0x58,
+        0x74, 0x6c, 0x48, 0x88, 0x99, 0xdc, 0x1e, 0xf8, 0x6d, 0xf7, 0x6d, 0xc6, 0xf3, 0xd5, 0xfc, 0x8f,
+        0xe9, 0x90, 0x78, 0xce, 0x8d, 0xb4, 0x31, 0xf9, 0xce, 0x2f, 0x46, 0x22, 0x3e, 0x36, 0x0c, 0x45,
+        0xb6, 0x7d, 0x88, 0xc1, 0x81, 0x1f, 0xdc, 0xbe, 0xb5, 0x1a, 0x96, 0x78, 0x81, 0x0b, 0x38, 0xdb,
+        0x7b, 0x5d, 0x52, 0xe5, 0x29, 0x08, 0x84, 0x06
+    };
+    /* RSA-OAEP SHA-256/MGF1-SHA256 ciphertext (256 bytes) -- pyca generated */
+    static const uint8_t oaep_tv_ciphertext[] = {
+        0x61, 0xf3, 0x63, 0x09, 0x05, 0x6f, 0xa4, 0x12, 0xc3, 0x96, 0x91, 0x61, 0xbb, 0x81, 0x89, 0x00,
+        0x35, 0xfc, 0xd3, 0x2c, 0xca, 0x8d, 0xc2, 0xcb, 0x4b, 0x12, 0x11, 0xb4, 0x89, 0x83, 0x96, 0x46,
+        0xe2, 0x5c, 0x50, 0x62, 0xfd, 0x70, 0xae, 0xa8, 0x74, 0x60, 0x82, 0xdc, 0xf7, 0x56, 0x2b, 0x92,
+        0x81, 0x43, 0xde, 0xd0, 0xe6, 0x88, 0x0f, 0xe0, 0x30, 0xe7, 0x15, 0x37, 0x57, 0x7f, 0x89, 0xe8,
+        0xaa, 0x5e, 0xbd, 0x97, 0xae, 0x1c, 0xb6, 0xe7, 0xea, 0x6e, 0xe9, 0xd1, 0x5f, 0xf6, 0xde, 0xa8,
+        0xcd, 0x8d, 0x58, 0xc1, 0x91, 0x6a, 0x1b, 0xe5, 0x08, 0x00, 0x9e, 0xb8, 0xc0, 0x2c, 0x63, 0x39,
+        0xd5, 0xca, 0x4e, 0xb3, 0x2d, 0xa1, 0x0c, 0xcb, 0x53, 0x3a, 0x11, 0x4c, 0x43, 0xbe, 0x45, 0xa2,
+        0xe5, 0xd2, 0x53, 0xd2, 0xbb, 0x71, 0x62, 0xce, 0xc0, 0xa8, 0xa0, 0xb0, 0x6e, 0x5b, 0x25, 0x7a,
+        0x65, 0x5d, 0x14, 0xc6, 0x73, 0xcd, 0xf9, 0xfc, 0x66, 0xf7, 0xde, 0xa0, 0xd7, 0x29, 0xdb, 0x92,
+        0x3e, 0xae, 0x1a, 0xa2, 0xdc, 0x47, 0x94, 0xb1, 0x33, 0x68, 0x4e, 0x1f, 0x54, 0x75, 0xdf, 0xa2,
+        0x96, 0xa0, 0xa8, 0xc1, 0xef, 0x8a, 0xb7, 0xd9, 0xbd, 0xac, 0xbb, 0x31, 0xa9, 0xc1, 0x08, 0xd0,
+        0xa7, 0x1f, 0xf6, 0xaa, 0x66, 0x66, 0xdd, 0x64, 0x3b, 0xcf, 0x94, 0x05, 0x1c, 0xf4, 0x5f, 0xcf,
+        0xaf, 0xdc, 0x60, 0xc2, 0xba, 0x8c, 0x88, 0x1a, 0x7f, 0x51, 0xbc, 0xff, 0xc7, 0xe4, 0x8a, 0x57,
+        0xdf, 0x1b, 0xab, 0xa2, 0x55, 0xb4, 0x3d, 0x7d, 0x80, 0xa3, 0x29, 0xff, 0x04, 0xc4, 0xe6, 0xa4,
+        0xa3, 0xd9, 0x9e, 0x2c, 0x34, 0x25, 0xf4, 0x88, 0x62, 0x2e, 0x6e, 0xf1, 0xc6, 0xdf, 0xbd, 0xd6,
+        0xd0, 0x4d, 0xa4, 0x20, 0x6d, 0x8e, 0x7f, 0x08, 0xba, 0x63, 0x2c, 0xc2, 0xef, 0xb2, 0x6d, 0xaa
+    };
+    static const uint8_t  oaep_tv_pt[]    = "wolfP11 RSA-OAEP test";
+    static const CK_ULONG oaep_tv_pt_len  = 21u;
+
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess = 0;
+    CK_SLOT_ID        slots[16];
+    CK_ULONG          count;
+    CK_OBJECT_HANDLE  objs[16];
+    CK_ULONG          nfound;
+    CK_SLOT_ID        evt_slot;
+    CK_RSA_PKCS_OAEP_PARAMS oaep_params;
+    CK_MECHANISM      oaep_mech;
+    uint8_t           pt_out[64];
+    CK_ULONG          pt_out_len;
+    int               f = 0;
+
+    if (flash_test_make_rsa_keystore_from_der(
+            oaep_tv_priv_der, sizeof(oaep_tv_priv_der),
+            "oaep_vector_test") != 0)
+        return f + 1;
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "rsa_oaep_vector: C_Initialize");
+    if (rv != CKR_OK) { unlink(FLASH_TEST_P11K); return f; }
+
+    wp11_test_inject_flash_event(FLASH_TEST_P11K, 1 /* arrived */);
+    C_WaitForSlotEvent(CKF_DONT_BLOCK, &evt_slot, NULL);
+
+    count = 16;
+    rv = C_GetSlotList(CK_FALSE, slots, &count);
+    if (count < 2) {
+        C_Finalize(NULL); unlink(FLASH_TEST_P11K);
+        return f + 1;
+    }
+
+    rv = C_OpenSession(slots[1], CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL, NULL, &hSess);
+    f += check(rv == CKR_OK, "rsa_oaep_vector: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER,
+                 (CK_UTF8CHAR_PTR)FLASH_TEST_PIN, FLASH_TEST_PIN_LEN);
+    f += check(rv == CKR_OK, "rsa_oaep_vector: C_Login");
+    if (rv != CKR_OK) {
+        C_CloseSession(hSess); C_Finalize(NULL); unlink(FLASH_TEST_P11K);
+        return f;
+    }
+
+    C_FindObjectsInit(hSess, NULL, 0);
+    nfound = 0;
+    C_FindObjects(hSess, objs, 16, &nfound);
+    C_FindObjectsFinal(hSess);
+    f += check(nfound >= 1, "rsa_oaep_vector: RSA key visible after login");
+    if (nfound < 1) {
+        C_Logout(hSess); C_CloseSession(hSess);
+        C_Finalize(NULL); unlink(FLASH_TEST_P11K);
+        return f;
+    }
+
+    /* Set up OAEP mechanism: SHA-256, MGF1-SHA256, no label */
+    memset(&oaep_params, 0, sizeof(oaep_params));
+    oaep_params.hashAlg         = CKM_SHA256;
+    oaep_params.mgf             = CKG_MGF1_SHA256;
+    oaep_params.source          = 0;
+    oaep_params.pSourceData     = NULL_PTR;
+    oaep_params.ulSourceDataLen = 0;
+    oaep_mech.mechanism         = CKM_RSA_PKCS_OAEP;
+    oaep_mech.pParameter        = &oaep_params;
+    oaep_mech.ulParameterLen    = (CK_ULONG)sizeof(oaep_params);
+
+    rv = C_DecryptInit(hSess, &oaep_mech, objs[0]);
+    f += check(rv == CKR_OK, "rsa_oaep_vector: C_DecryptInit");
+    if (rv == CKR_OK) {
+        pt_out_len = (CK_ULONG)sizeof(pt_out);
+        rv = C_Decrypt(hSess,
+                       (CK_BYTE_PTR)(void *)(uintptr_t)oaep_tv_ciphertext,
+                       (CK_ULONG)sizeof(oaep_tv_ciphertext),
+                       pt_out, &pt_out_len);
+        f += check(rv == CKR_OK, "rsa_oaep_vector: C_Decrypt succeeds");
+        f += check(rv == CKR_OK && pt_out_len == oaep_tv_pt_len,
+                   "rsa_oaep_vector: decrypted length matches plaintext");
+        f += check(rv == CKR_OK &&
+                   memcmp(pt_out, oaep_tv_pt, (size_t)oaep_tv_pt_len) == 0,
+                   "rsa_oaep_vector: C_Decrypt matches pyca/cryptography oracle");
+    }
+
+    /* Part B: C_Encrypt with flash backend key.
+     *
+     * Tests the is_ks backend-narrowing introduced in wolfP11-jq34: the
+     * C_Encrypt OAEP path must check (backend_ops == flash_ops || fsdir_ops)
+     * before casting key_priv, because USB keys also satisfy
+     * (backend_ops != soft_ops) but have a different key_priv layout.
+     *
+     * Oracle: wolfCrypt wc_RsaPrivateDecrypt_ex on the raw DER (independent
+     * of the PKCS#11 layer and the flash backend temp-key path). */
+    {
+        static const uint8_t enc_pt[]  = "wolfP11 flash OAEP encrypt";
+        uint8_t    ct[256];       /* RSA-2048: 256-byte modulus */
+        CK_ULONG   ct_len;
+        uint8_t    dec_buf[256];
+        word32     dec_len;
+        RsaKey     oracle_key;
+        word32     der_idx = 0;
+        WC_RNG     rng;
+        int        wret;
+
+        rv = C_EncryptInit(hSess, &oaep_mech, objs[0]);
+        f += check(rv == CKR_OK,
+                   "rsa_oaep_vector: C_EncryptInit (flash backend, Part B)");
+        if (rv == CKR_OK) {
+            ct_len = (CK_ULONG)sizeof(ct);
+            rv = C_Encrypt(hSess,
+                           (CK_BYTE_PTR)(void *)(uintptr_t)enc_pt,
+                           (CK_ULONG)(sizeof(enc_pt) - 1u),
+                           ct, &ct_len);
+            f += check(rv == CKR_OK,
+                       "rsa_oaep_vector: C_Encrypt (flash backend, Part B)");
+            if (rv == CKR_OK) {
+                /* Oracle: decode private DER with wolfCrypt and OAEP-decrypt */
+                wc_InitRng(&rng);
+                wc_InitRsaKey(&oracle_key, NULL);
+                wc_RsaSetRNG(&oracle_key, &rng);
+                wret = wc_RsaPrivateKeyDecode(oaep_tv_priv_der, &der_idx,
+                                               &oracle_key,
+                                               (word32)sizeof(oaep_tv_priv_der));
+                if (wret == 0) {
+                    dec_len = (word32)sizeof(dec_buf);
+                    wret    = wc_RsaPrivateDecrypt_ex(
+                                  ct, (word32)ct_len,
+                                  dec_buf, dec_len, &oracle_key,
+                                  WC_RSA_OAEP_PAD, WC_HASH_TYPE_SHA256,
+                                  WC_MGF1SHA256, NULL, 0);
+                }
+                f += check(wret > 0 &&
+                           (size_t)wret == sizeof(enc_pt) - 1u &&
+                           memcmp(dec_buf, enc_pt, (size_t)wret) == 0,
+                           "rsa_oaep_vector: oracle decrypts flash C_Encrypt output");
+                wc_FreeRsaKey(&oracle_key);
+                wc_FreeRng(&rng);
+            }
+        }
+    }
+
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    wp11_test_inject_flash_event(FLASH_TEST_P11K, 0 /* departed */);
+    unlink(FLASH_TEST_P11K);
+    return f;
+}
+
 /* -------------------------------------------------------------------------
  * test_soft_init_pin_and_wrong_pin
  *
@@ -3047,7 +4391,478 @@ cleanup:
     unlink(SOFT_PERSIST_P11K);
     return f;
 }
+
+/* -------------------------------------------------------------------------
+ * test_hotplug_queue_overflow  (wolfP11-nmpg)
+ *
+ * Verify that the hotplug ring buffer (capacity WP11_HOTPLUG_QUEUE_SIZE-1 = 63)
+ * correctly counts overflow events via g_hotplug_dropped.
+ *
+ * Strategy: inject exactly 63 events using alternating arrival/departure
+ * events for a single synthetic path.  The alternation guarantees that
+ * slot_add_keystore / slot_remove_keystore each succeed (returning a valid
+ * slot_id != -1), ensuring hotplug_push_event is called each time.
+ * After 63 events the ring is full.  The 64th push must increment
+ * g_hotplug_dropped without corrupting the 63 queued events.
+ *
+ * Slot table capacity: slot_add_keystore uses a re-insertion loop that finds
+ * an existing slot with the same path (in_use==1, token_present==0 after
+ * removal) and reuses it rather than allocating a new slot.  Consequently
+ * this test occupies at most ONE slot throughout, regardless of how many
+ * events are injected.  WP11_CFG_MAX_SLOTS >= 2 is the only requirement
+ * (soft slot 0 plus one for this test), comfortably below the default of 16.
+ * ---------------------------------------------------------------------- */
+#define OVERFLOW_TEST_PATH "/tmp/wp11_hotplug_overflow_test.p11k"
+
+static int test_hotplug_queue_overflow(void)
+{
+    CK_RV        rv;
+    CK_SLOT_ID   dummy_slot;
+    unsigned int dropped;
+    int          i, f = 0;
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "hotplug_overflow: C_Initialize");
+    if (rv != CKR_OK) return f;
+
+    /* Inject 63 events to fill the ring completely.
+     * Even i -> arrived=1 (add/re-insert); odd i -> arrived=0 (remove).
+     * This alternation keeps slot_add/remove each returning a valid slot_id. */
+    for (i = 0; i < 63; i++) {
+        wp11_test_inject_flash_event(OVERFLOW_TEST_PATH, (i & 1) == 0 ? 1 : 0);
+    }
+    dropped = wp11_test_hotplug_dropped();
+    f += check(dropped == 0u,
+               "hotplug_overflow: 0 drops after 63 events (ring exactly full)");
+
+    /* 64th event must overflow (i=63 is odd, so arrived=0 = remove). */
+    wp11_test_inject_flash_event(OVERFLOW_TEST_PATH, (63 & 1) == 0 ? 1 : 0);
+    dropped = wp11_test_hotplug_dropped();
+    f += check(dropped >= 1u,
+               "hotplug_overflow: at least 1 drop after 64th event");
+
+    /* Drain the ring.  C_WaitForSlotEvent(CKF_DONT_BLOCK) returns:
+     *   CKR_OK:       one event dequeued, continue.
+     *   CKR_NO_EVENT: queue empty, expected loop exit.
+     *   Anything else (e.g. CKR_GENERAL_ERROR from a mutex failure) is a
+     *   test infrastructure failure that the check() below will catch -- it
+     *   becomes a test FAIL, not a silent pass.  The loop cannot loop forever
+     *   because the ring has a finite depth and each CKR_OK pops one entry. */
+    do {
+        rv = C_WaitForSlotEvent(CKF_DONT_BLOCK, &dummy_slot, NULL);
+    } while (rv == CKR_OK);
+    f += check(rv == CKR_NO_EVENT,
+               "hotplug_overflow: queue fully drained (CKR_NO_EVENT)");
+
+    C_Finalize(NULL);
+    unlink(OVERFLOW_TEST_PATH);
+    return f;
+}
 #endif /* WOLFP11_CFG_USB_FLASH_BACKEND */
+
+/* -------------------------------------------------------------------------
+ * test_buffer_too_small
+ *
+ * wolfP11-kkva: Verify that C_Sign and C_Encrypt return CKR_BUFFER_TOO_SMALL
+ * (not CKR_OK, not a crash or silent truncation) when the output buffer is
+ * exactly one byte smaller than the required size, and that the operation
+ * remains active so the caller can retry with a correctly-sized buffer.
+ *
+ * ECDSA P-256: sig_len_max = 72 bytes (DER max: 8 + 2*32).
+ *   Buffer of 71 → CKR_BUFFER_TOO_SMALL, updated *pulSignatureLen = 72.
+ *   Retry with 72-byte buffer → CKR_OK.
+ *
+ * AES-GCM: output = plaintext_len + tag_len (16+16 = 32 bytes).
+ *   Buffer of 31 → CKR_BUFFER_TOO_SMALL, updated *pulEncryptedDataLen = 32.
+ *   Retry with 32-byte buffer → CKR_OK.
+ * ---------------------------------------------------------------------- */
+static int test_buffer_too_small(void)
+{
+    CK_RV             rv;
+    CK_SESSION_HANDLE hSess   = 0;
+    CK_OBJECT_HANDLE  hPub    = 0;
+    CK_OBJECT_HANDLE  hPriv   = 0;
+    CK_OBJECT_HANDLE  hAesKey = 0;
+    CK_MECHANISM      ec_gen  = { CKM_EC_KEY_PAIR_GEN, NULL_PTR, 0 };
+    CK_MECHANISM      sig_mech = { CKM_ECDSA, NULL_PTR, 0 };
+    static const CK_UTF8CHAR pin[]   = "softtest";
+    static const CK_ULONG    pin_len = 8;
+    /* Oracle: P-256 ECDSA DER max = 8 + 2*32 = 72, computed independently */
+    static const CK_ULONG P256_MAX = 72u;
+    static const CK_BYTE hash[32] = {
+        0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80,
+        0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0, 0x11,
+        0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19,
+        0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21
+    };
+    CK_BYTE  sig_small[71];
+    CK_BYTE  sig_full[72];
+    CK_ULONG siglen;
+
+    /* AES-GCM: 16-byte plaintext + 16-byte tag = 32-byte output */
+    static const CK_ULONG aes_sz   = 32u;
+    static const CK_BBOOL ck_true  = CK_TRUE;
+    CK_ATTRIBUTE aes_tmpl[] = {
+        { CKA_VALUE_LEN,   (CK_VOID_PTR)&aes_sz,  sizeof(aes_sz)  },
+        { CKA_EXTRACTABLE, (CK_VOID_PTR)&ck_true, sizeof(ck_true) }
+    };
+    CK_MECHANISM          aes_gen  = { CKM_AES_KEY_GEN, NULL_PTR, 0 };
+    static const uint8_t  iv[12]   = {
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+        0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c
+    };
+    static const uint8_t  pt[16]   = {
+        0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+        0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55
+    };
+    CK_GCM_PARAMS gcm_p = { (CK_BYTE_PTR)iv, 12u, 0u, NULL_PTR, 0u, 128u };
+    CK_MECHANISM  aes_enc = { CKM_AES_GCM, &gcm_p, sizeof(gcm_p) };
+    CK_BYTE  ct_small[31];  /* 16+16-1 = 31, one byte too small */
+    CK_BYTE  ct_full[32];
+    CK_ULONG ctlen;
+    int      f = 0;
+
+    setenv("WOLFP11_SOFT_KEYSTORE_PATH", "", 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "buf_too_small: C_Initialize");
+    if (rv != CKR_OK) { unsetenv("WOLFP11_SOFT_KEYSTORE_PATH"); return f; }
+
+    rv = C_OpenSession(0, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL_PTR, NULL_PTR, &hSess);
+    f += check(rv == CKR_OK, "buf_too_small: C_OpenSession");
+
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)pin, pin_len);
+    f += check(rv == CKR_OK, "buf_too_small: C_Login");
+    if (rv != CKR_OK) goto done;
+
+    /* Generate EC P-256 key pair (sets sig_len_max = 72 per wolfP11-3qf) */
+    rv = C_GenerateKeyPair(hSess, &ec_gen, NULL_PTR, 0, NULL_PTR, 0,
+                            &hPub, &hPriv);
+    f += check(rv == CKR_OK, "buf_too_small: C_GenerateKeyPair");
+    if (rv != CKR_OK) goto done;
+
+    /* -- ECDSA: 71-byte buffer (P256_MAX-1) must return CKR_BUFFER_TOO_SMALL -- */
+    rv = C_SignInit(hSess, &sig_mech, hPriv);
+    f += check(rv == CKR_OK, "buf_too_small: ECDSA C_SignInit");
+    if (rv != CKR_OK) goto done;
+
+    siglen = P256_MAX - 1u;  /* 71 */
+    rv = C_Sign(hSess, (CK_BYTE_PTR)hash, 32u, sig_small, &siglen);
+    f += check(rv == CKR_BUFFER_TOO_SMALL,
+               "buf_too_small: ECDSA 71-byte buf -> CKR_BUFFER_TOO_SMALL");
+    f += check(siglen == P256_MAX,
+               "buf_too_small: ECDSA siglen updated to P256_MAX after BUFFER_TOO_SMALL");
+
+    /* Operation must remain active after CKR_BUFFER_TOO_SMALL */
+    siglen = sizeof(sig_full);
+    rv = C_Sign(hSess, (CK_BYTE_PTR)hash, 32u, sig_full, &siglen);
+    f += check(rv == CKR_OK,
+               "buf_too_small: ECDSA retry with full buffer succeeds");
+    f += check(siglen > 0u && siglen <= P256_MAX,
+               "buf_too_small: ECDSA retry siglen in range");
+
+    /* -- AES-GCM: 31-byte buffer (16+16-1) must return CKR_BUFFER_TOO_SMALL -- */
+    rv = C_GenerateKey(hSess, &aes_gen, aes_tmpl, 2u, &hAesKey);
+    f += check(rv == CKR_OK, "buf_too_small: C_GenerateKey AES-256");
+    if (rv != CKR_OK) goto done;
+
+    rv = C_EncryptInit(hSess, &aes_enc, hAesKey);
+    f += check(rv == CKR_OK, "buf_too_small: AES-GCM C_EncryptInit");
+    if (rv != CKR_OK) goto done;
+
+    ctlen = sizeof(ct_small);  /* 31 */
+    rv = C_Encrypt(hSess, (CK_BYTE_PTR)pt, sizeof(pt), ct_small, &ctlen);
+    f += check(rv == CKR_BUFFER_TOO_SMALL,
+               "buf_too_small: AES-GCM 31-byte buf -> CKR_BUFFER_TOO_SMALL");
+    f += check(ctlen == 32u,
+               "buf_too_small: AES-GCM ctlen updated to 32 after BUFFER_TOO_SMALL");
+
+    /* Operation must remain active; retry with correct size must succeed */
+    ctlen = sizeof(ct_full);  /* 32 */
+    rv = C_Encrypt(hSess, (CK_BYTE_PTR)pt, sizeof(pt), ct_full, &ctlen);
+    f += check(rv == CKR_OK,
+               "buf_too_small: AES-GCM retry with 32-byte buf -> CKR_OK");
+    f += check(ctlen == 32u,
+               "buf_too_small: AES-GCM output len == 32 after successful encrypt");
+
+done:
+    C_Logout(hSess);
+    C_CloseSession(hSess);
+    C_Finalize(NULL);
+    unsetenv("WOLFP11_SOFT_KEYSTORE_PATH");
+    return f;
+}
+
+#if defined(WOLFP11_CFG_WOLFHSM_BACKEND) && defined(WOLFHSM_CFG_ENABLE_SERVER)
+/* -------------------------------------------------------------------------
+ * wolfHSM TCP integration test fixture (wolfP11-fd3k)
+ *
+ * Spins up an in-process wolfHSM server on TCP port WH_TCP_TEST_PORT with
+ * a RAM-backed NVM.  The PKCS#11 layer connects via WOLFP11_HSM_TCP_ADDR.
+ * Only compiled when WOLFHSM=1 (WOLFHSM_CFG_ENABLE_SERVER set by the test
+ * Makefile rule, server sources in TEST_SRCS).
+ * ---------------------------------------------------------------------- */
+
+#include <wolfhsm/wh_server.h>
+#include <wolfhsm/wh_nvm.h>
+#include <wolfhsm/wh_nvm_flash.h>
+#include <wolfhsm/wh_flash_ramsim.h>
+#include "port/posix/posix_transport_tcp.h"
+#include <pthread.h>
+
+#define WH_TCP_TEST_PORT         23457
+#define WH_TCP_TEST_ADDR         "127.0.0.1:23457"
+#define WH_TCP_TEST_FLASH_SIZE   (256u * 1024u)
+#define WH_TCP_TEST_FLASH_SECTOR (64u * 1024u)
+#define WH_TCP_TEST_FLASH_PAGE   8u
+
+typedef struct {
+    /* RAM-backed flash NVM */
+    uint8_t              flash_mem[WH_TCP_TEST_FLASH_SIZE];
+    whFlashRamsimCtx     flash_ctx;
+    whFlashRamsimCfg     flash_cfg;
+    whFlashCb            flash_cb;
+    whNvmContext         nvm;
+    whNvmFlashContext    nvm_flash_ctx;
+    whNvmFlashConfig     nvm_flash_cfg;
+
+    /* TCP transport: IP string must outlive wh_Server_Init */
+    char                           ip_buf[16];
+    posixTransportTcpServerContext tcp_srv_ctx;
+    posixTransportTcpConfig        tcp_srv_cfg;
+    whTransportServerCb            tcp_srv_cb;
+
+    /* wolfHSM server */
+    whServerCryptoContext server_crypto;
+    whCommServerConfig    server_comm_cfg;
+    whServerConfig        server_cfg;
+    whServerContext       server;
+
+    /* Background server thread */
+    pthread_t    server_thread;
+    volatile int server_running;
+} wp11_wh_tcp_fixture_t;
+
+/* Non-blocking server loop: posixTransportTcp uses poll() with timeout 0,
+ * so wh_Server_HandleRequestMessage returns WH_ERROR_NOTREADY when idle.
+ * The loop exits once server_running is cleared. */
+static void *wh_tcp_server_fn(void *arg)
+{
+    wp11_wh_tcp_fixture_t *fx = (wp11_wh_tcp_fixture_t *)arg;
+    while (fx->server_running) {
+        int ret = wh_Server_HandleRequestMessage(&fx->server);
+        if (ret != WH_ERROR_OK && ret != WH_ERROR_NOTREADY) break;
+    }
+    return NULL;
+}
+
+static int wh_tcp_fixture_init(wp11_wh_tcp_fixture_t *fx)
+{
+    whNvmConfig             nvm_cfg;
+    static const whNvmCb    s_nvm_cb = WH_NVM_FLASH_CB;
+
+    memset(fx, 0, sizeof(*fx));
+    fx->flash_cb = (whFlashCb)WH_FLASH_RAMSIM_CB;
+
+    fx->flash_cfg.memory     = fx->flash_mem;
+    fx->flash_cfg.size       = WH_TCP_TEST_FLASH_SIZE;
+    fx->flash_cfg.sectorSize = WH_TCP_TEST_FLASH_SECTOR;
+    fx->flash_cfg.pageSize   = WH_TCP_TEST_FLASH_PAGE;
+    fx->flash_cfg.erasedByte = 0xFFu;
+
+    fx->nvm_flash_cfg.cb      = &fx->flash_cb;
+    fx->nvm_flash_cfg.context = &fx->flash_ctx;
+    fx->nvm_flash_cfg.config  = &fx->flash_cfg;
+
+    memset(&nvm_cfg, 0, sizeof(nvm_cfg));
+    nvm_cfg.cb      = (whNvmCb *)&s_nvm_cb;
+    nvm_cfg.context = &fx->nvm_flash_ctx;
+    nvm_cfg.config  = &fx->nvm_flash_cfg;
+    if (wh_Nvm_Init(&fx->nvm, &nvm_cfg) != WH_ERROR_OK) return -1;
+
+    /* TCP transport: bind+listen happens synchronously in wh_Server_Init */
+    strncpy(fx->ip_buf, "127.0.0.1", sizeof(fx->ip_buf) - 1u);
+    fx->ip_buf[sizeof(fx->ip_buf) - 1u] = '\0';
+    fx->tcp_srv_cfg.server_ip_string = fx->ip_buf;
+    fx->tcp_srv_cfg.server_port      = (short)WH_TCP_TEST_PORT;
+    fx->tcp_srv_cb                   = (whTransportServerCb)PTT_SERVER_CB;
+
+    fx->server_comm_cfg.transport_cb      = &fx->tcp_srv_cb;
+    fx->server_comm_cfg.transport_context = &fx->tcp_srv_ctx;
+    fx->server_comm_cfg.transport_config  = &fx->tcp_srv_cfg;
+    fx->server_comm_cfg.server_id         = 1u;
+
+    if (wc_InitRng_ex(fx->server_crypto.rng, NULL, INVALID_DEVID) != 0) {
+        wh_Nvm_Cleanup(&fx->nvm);
+        return -1;
+    }
+
+    fx->server_cfg.comm_config = &fx->server_comm_cfg;
+    fx->server_cfg.nvm         = &fx->nvm;
+    fx->server_cfg.crypto      = &fx->server_crypto;
+
+    if (wh_Server_Init(&fx->server, &fx->server_cfg) != WH_ERROR_OK) {
+        wc_FreeRng(fx->server_crypto.rng);
+        wh_Nvm_Cleanup(&fx->nvm);
+        return -1;
+    }
+
+    fx->server_running = 1;
+    if (pthread_create(&fx->server_thread, NULL, wh_tcp_server_fn, fx) != 0) {
+        fx->server_running = 0;
+        wh_Server_Cleanup(&fx->server);
+        wc_FreeRng(fx->server_crypto.rng);
+        wh_Nvm_Cleanup(&fx->nvm);
+        return -1;
+    }
+    return 0;
+}
+
+static void wh_tcp_fixture_cleanup(wp11_wh_tcp_fixture_t *fx)
+{
+    fx->server_running = 0;
+    pthread_join(fx->server_thread, NULL);
+    wh_Server_Cleanup(&fx->server);
+    wc_FreeRng(fx->server_crypto.rng);
+    wh_Nvm_Cleanup(&fx->nvm);
+}
+
+/* wolfP11-fd3k: C_Encrypt and C_Decrypt with CKM_RSA_PKCS_OAEP must return
+ * CKR_MECHANISM_INVALID for a wolfHSM RSA key.
+ *
+ * wolfHSM keys do not expose raw key material; software OAEP (which needs
+ * DER bytes) is impossible.  The else-branch added in wolfP11-jq34 handles
+ * this.  This test covers the specific USBFLASH+WOLFHSM build combination
+ * where is_ks==0 and backend_ops==wolfhsm_ops, exercising the rejection path
+ * that previously had no CI coverage.
+ *
+ * Setup: in-process wolfHSM TCP server on loopback port WH_TCP_TEST_PORT.
+ * C_GenerateKeyPair registers a key with backend_ops=&wp11_backend_wolfhsm_ops.
+ * C_EncryptInit / C_DecryptInit succeed (no backend check at init time);
+ * C_Encrypt / C_Decrypt return CKR_MECHANISM_INVALID. */
+static int test_wolfhsm_oaep_rejected(void)
+{
+    wp11_wh_tcp_fixture_t    *fx;
+    CK_RV                     rv;
+    CK_SESSION_HANDLE         hSess = 0;
+    CK_SLOT_ID                slots[16];
+    CK_ULONG                  count;
+    CK_OBJECT_HANDLE          hPub = 0, hPriv = 0;
+    CK_ULONG                  mod_bits = 2048;
+    CK_MECHANISM              rsa_gen_mech;
+    CK_ATTRIBUTE              pub_tmpl[1];
+    CK_RSA_PKCS_OAEP_PARAMS   oaep_params;
+    CK_MECHANISM              oaep_mech;
+    int                       f = 0;
+
+    fx = (wp11_wh_tcp_fixture_t *)malloc(sizeof(*fx));
+    if (fx == NULL) return 1;
+
+    if (wh_tcp_fixture_init(fx) != 0) { free(fx); return f + 1; }
+
+    /* WOLFP11_WOLFHSM_SERVER_ADDR must be non-empty for C_Initialize to
+     * create the wolfHSM slot.  WOLFP11_HSM_TCP_ADDR is read by
+     * wolfhsm_slot_connect when C_Login is called. */
+    setenv("WOLFP11_WOLFHSM_SERVER_ADDR", "test", 1);
+    setenv("WOLFP11_HSM_TCP_ADDR", WH_TCP_TEST_ADDR, 1);
+
+    rv = C_Initialize(NULL);
+    f += check(rv == CKR_OK, "wolfhsm_oaep_rejected: C_Initialize");
+    if (rv != CKR_OK) goto done_cleanup;
+
+    /* Expect slot 0 = soft, slot 1 = wolfHSM */
+    count = (CK_ULONG)(sizeof(slots) / sizeof(slots[0]));
+    rv = C_GetSlotList(CK_TRUE, slots, &count);
+    if (rv != CKR_OK || count < 2) {
+        f += check(0, "wolfhsm_oaep_rejected: need soft + wolfHSM slots");
+        goto done_finalize;
+    }
+
+    /* slots[1] is always the wolfHSM slot: at C_Initialize time no USB
+     * devices are present, so wolfHSM gets the first dynamic slot (1). */
+    rv = C_OpenSession(slots[1], CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                       NULL, NULL, &hSess);
+    f += check(rv == CKR_OK, "wolfhsm_oaep_rejected: C_OpenSession");
+    if (rv != CKR_OK) goto done_finalize;
+
+    /* C_Login triggers wolfhsm_slot_connect: reads WOLFP11_HSM_TCP_ADDR,
+     * connects to the in-process server, and runs wolfhsm_slot_populate_keys. */
+    rv = C_Login(hSess, CKU_USER, (CK_UTF8CHAR_PTR)"pin", 3);
+    f += check(rv == CKR_OK, "wolfhsm_oaep_rejected: C_Login");
+    if (rv != CKR_OK) goto done_close;
+
+    /* Generate a wolfHSM RSA-2048 key pair.  After this call,
+     * g_keys[gi_{pub,priv}].backend_ops == &wp11_backend_wolfhsm_ops. */
+    rsa_gen_mech.mechanism      = CKM_RSA_PKCS_KEY_PAIR_GEN;
+    rsa_gen_mech.pParameter     = NULL_PTR;
+    rsa_gen_mech.ulParameterLen = 0;
+    pub_tmpl[0].type            = CKA_MODULUS_BITS;
+    pub_tmpl[0].pValue          = &mod_bits;
+    pub_tmpl[0].ulValueLen      = (CK_ULONG)sizeof(mod_bits);
+    rv = C_GenerateKeyPair(hSess, &rsa_gen_mech,
+                           pub_tmpl, 1, NULL_PTR, 0,
+                           &hPub, &hPriv);
+    f += check(rv == CKR_OK, "wolfhsm_oaep_rejected: C_GenerateKeyPair");
+    if (rv != CKR_OK) goto done_logout;
+
+    /* OAEP mechanism: SHA-256, MGF1-SHA256, no label */
+    memset(&oaep_params, 0, sizeof(oaep_params));
+    oaep_params.hashAlg         = CKM_SHA256;
+    oaep_params.mgf             = CKG_MGF1_SHA256;
+    oaep_params.source          = 0;
+    oaep_params.pSourceData     = NULL_PTR;
+    oaep_params.ulSourceDataLen = 0;
+    oaep_mech.mechanism         = CKM_RSA_PKCS_OAEP;
+    oaep_mech.pParameter        = &oaep_params;
+    oaep_mech.ulParameterLen    = (CK_ULONG)sizeof(oaep_params);
+
+    /* C_Encrypt OAEP: init succeeds (no backend check at init time); the
+     * wolfHSM rejection fires in C_Encrypt when is_ks==0 and
+     * backend_ops != soft_ops (wolfP11-jq34 else-branch). */
+    rv = C_EncryptInit(hSess, &oaep_mech, hPub);
+    f += check(rv == CKR_OK, "wolfhsm_oaep_rejected: C_EncryptInit");
+    if (rv == CKR_OK) {
+        static const uint8_t pt[] = "wolfP11 wolfhsm oaep";
+        uint8_t   ct_buf[256];
+        CK_ULONG  ct_len = (CK_ULONG)sizeof(ct_buf);
+        rv = C_Encrypt(hSess,
+                       (CK_BYTE_PTR)(void *)(uintptr_t)pt,
+                       (CK_ULONG)(sizeof(pt) - 1u),
+                       ct_buf, &ct_len);
+        f += check(rv == CKR_MECHANISM_INVALID,
+                   "wolfhsm_oaep_rejected: C_Encrypt returns CKR_MECHANISM_INVALID");
+    }
+
+    /* C_Decrypt OAEP: same rejection path -- wolfHSM private key, is_ks==0. */
+    rv = C_DecryptInit(hSess, &oaep_mech, hPriv);
+    f += check(rv == CKR_OK, "wolfhsm_oaep_rejected: C_DecryptInit");
+    if (rv == CKR_OK) {
+        static const uint8_t fake_ct[256] = {0};
+        uint8_t   pt_out[256];
+        CK_ULONG  pt_len = (CK_ULONG)sizeof(pt_out);
+        rv = C_Decrypt(hSess,
+                       (CK_BYTE_PTR)(void *)(uintptr_t)fake_ct, 256,
+                       pt_out, &pt_len);
+        f += check(rv == CKR_MECHANISM_INVALID,
+                   "wolfhsm_oaep_rejected: C_Decrypt returns CKR_MECHANISM_INVALID");
+    }
+
+done_logout:
+    C_Logout(hSess);
+done_close:
+    C_CloseSession(hSess);
+done_finalize:
+    C_Finalize(NULL);
+done_cleanup:
+    unsetenv("WOLFP11_HSM_TCP_ADDR");
+    unsetenv("WOLFP11_WOLFHSM_SERVER_ADDR");
+    wh_tcp_fixture_cleanup(fx);
+    free(fx);
+    return f;
+}
+
+#endif /* WOLFP11_CFG_WOLFHSM_BACKEND && WOLFHSM_CFG_ENABLE_SERVER */
 
 int wp11_test_pkcs11(void)
 {
@@ -3085,6 +4900,15 @@ int wp11_test_pkcs11(void)
     failures += test_init_error_path_active_flag();
     failures += test_sign_init_active_cleared_on_error();
     failures += test_soft_generate_keypair_basic();
+    failures += test_soft_generate_keypair_p384();
+    failures += test_soft_generate_keypair_rsa();
+    failures += test_soft_generate_keypair_ed25519();
+    failures += test_soft_rsa_oaep();
+#ifdef WC_RSA_PSS
+    failures += test_soft_rsa_pss();
+#endif
+    failures += test_soft_aes_gcm();
+    failures += test_buffer_too_small();
 
     failures += test_derive_key_soft();
 
@@ -3103,6 +4927,12 @@ int wp11_test_pkcs11(void)
     failures += test_flash_pkcs11_destroy_flash_key();
     failures += test_flash_pkcs11_departure_while_logged_in();
     failures += test_flash_pkcs11_get_attribute_value();
+    failures += test_rsa_oaep_vector_oracle();
+    failures += test_hotplug_queue_overflow();
+#endif
+
+#if defined(WOLFP11_CFG_WOLFHSM_BACKEND) && defined(WOLFHSM_CFG_ENABLE_SERVER)
+    failures += test_wolfhsm_oaep_rejected();
 #endif
 
     return failures;

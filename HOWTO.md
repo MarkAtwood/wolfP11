@@ -415,7 +415,11 @@ int main(int argc, char **argv) {
     long dlen = ftell(f);
     rewind(f);
     uint8_t *der = malloc((size_t)dlen);
-    fread(der, 1, (size_t)dlen, f);
+    if (!der) { fclose(f); return 1; }
+    if (fread(der, 1, (size_t)dlen, f) != (size_t)dlen) {
+        fprintf(stderr, "%s: read error\n", argv[1]);
+        free(der); fclose(f); return 1;
+    }
     fclose(f);
 
     wp11_key_entry_t entry = {0};
@@ -922,44 +926,10 @@ pkcs11:token=My%20Token;id=%01;type=private
 
 ## 8. wolfProvider OpenSSL Integration
 
-The wolfProvider patch closes the devId gap that prevents wolfProvider from
-routing OpenSSL operations through wolfHSM or wolfP11 backends.
-
-### Apply the patch
-
-```sh
-cd ~/wolfProvider
-patch -p1 < ~/wolfP11/provider_patch/wolfprovider_devid.patch
-```
-
-Rebuild wolfProvider:
-
-```sh
-./autogen.sh
-./configure
-make
-sudo make install
-```
-
-### What the patch does
-
-- Adds `int devId` to `WOLFPROV_CTX`
-- Exposes `wolfprovider_devid` as a settable `OSSL_PARAM`
-- Routes `devId` through RSA, ECC, and DH key initialization (`wc_InitRsaKey_ex`,
-  `wc_ecc_init_ex`, `wc_InitDhKey_ex`)
-
-**Known gap:** ECX key types (Ed25519, X25519, Ed448, X448) do not fully
-inherit `devId` due to function pointer constraints in `wp_ecx_kmgmt.c`. A
-full fix requires upstream wolfCrypt changes. See the patch header for
-details.
-
-### Set the devId at runtime
-
-Configure wolfProvider to route operations through wolfHSM by setting
-`wolfprovider_devid` to the `WH_DEV_ID` value registered with wolfCrypt's
-device callback. The exact OpenSSL configuration syntax depends on the
-wolfProvider version; see the wolfProvider documentation for
-`OSSL_PROVIDER_set_param` usage.
+> **[*] Pending upstream merge.** wolfProvider hardcodes `INVALID_DEVID` in
+> all key init calls, bypassing wolfCrypt's device callback. A fix has been
+> submitted as [wolfSSL/wolfProvider#390](https://github.com/wolfSSL/wolfProvider/pull/390).
+> This section will be updated with usage instructions once that PR merges.
 
 ---
 
@@ -990,6 +960,50 @@ Find the correct USB bus/device numbers with `lsusb`:
 lsusb | grep -i yubikey
 # Bus 001 Device 002: ID 1050:0407 Yubico.com Yubikey 4/5 U2F+CCID
 ```
+
+### Memory locking and `RLIMIT_MEMLOCK`
+
+wolfP11 locks all keystore key material into RAM with `mlock(2)` to prevent
+private key bytes from being paged to disk. **`mlock` failure is fatal:** if
+`mlock` returns `ENOMEM`, `C_Login` fails and the keystore is not loaded.
+This is a deliberate security decision; wolfP11 will not operate with
+unlocked key material.
+
+Many container runtimes and hardened systems set a low default
+`RLIMIT_MEMLOCK` (often 64 KiB). Symptom: `C_Login` returns
+`CKR_GENERAL_ERROR` with no other indication.
+
+**Diagnose:**
+
+```sh
+ulimit -l          # soft limit in KiB; must exceed keystore size
+```
+
+**Fix (Docker):**
+
+```sh
+docker run --ulimit memlock=-1:-1 ...
+```
+
+**Fix (Docker, least-privilege alternative):**
+
+```sh
+docker run --cap-add IPC_LOCK ...
+```
+
+**Fix (Kubernetes):** Add `IPC_LOCK` to `securityContext.capabilities.add`.
+
+**Fix (systemd service):**
+
+```ini
+[Service]
+LimitMEMLOCK=infinity
+```
+
+**Required limit:** Approximately `number_of_keys × key_size_bytes × 3`.
+Example: 4 RSA-4096 keys require roughly `4 × 512 × 3 ≈ 6 KiB` -- well
+under the 64 KiB default. Large deployments with many keys may need to
+raise the limit.
 
 ---
 

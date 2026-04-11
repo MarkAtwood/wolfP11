@@ -2,7 +2,7 @@
 
 A daemon-free PKCS#11 library for USB hardware tokens and wolfHSM, built on wolfCrypt and libusb.
 
-**License:** GPL-3.0
+**License:** GPL-3.0 or commercial (wolfSSL Inc.)
 **Version:** 0.1.0
 **Language:** C99 (C90-compatible for embedded targets)
 
@@ -45,7 +45,7 @@ OpenSC is the right choice when pcscd is available and token breadth matters. wo
 OpenSSL 3.x CLI / application
         |
         v
-wolfP11 OpenSSL provider  (patches wolfProvider devId gap)
+wolfP11 OpenSSL provider  (requires wolfProvider devId patch; see PR #390)
         |
         v
 wolfP11 PKCS#11 layer     (C_* functions -- libwolfp11.so)
@@ -74,6 +74,18 @@ wolfP11 PKCS#11 layer     (C_* functions -- libwolfp11.so)
 | wolfHSM backend | `wolfp11/wp11_backend.h`, `src/wp11_backend_wolfhsm.c` | wolfHSM client integration |
 | Settings | `wolfp11/wp11_settings.h` | Compile-time configuration defaults |
 | CLI | `src/cli/wp11_cli.c` | `wp11` command-line tool |
+
+### wolfCrypt integration
+
+wolfCrypt is the crypto engine for all backends. Three things are outside wolfCrypt's scope that wolfP11 supplies:
+
+| Layer | wolfCrypt provides | wolfP11 provides |
+|-------|--------------------|------------------|
+| Key model | DER/PEM and raw structs (`RsaKey`, `ecc_key`) | PKCS#11 `CKA_*` attribute model; bridging from DER to CK objects |
+| Key storage | None | Encrypted `.p11k` keystore on disk (`wp11_keystore.c`) |
+| Enclave backends | `devId` callback hook | wolfHSM client (uses the hook); USB CCID transport |
+
+Platform secure enclaves (SGX, TrustZone, Apple Secure Enclave) are not abstracted by wolfCrypt. The wolfHSM devId integration is the current path for hardware security; other enclave targets would need new backends.
 
 ---
 
@@ -268,22 +280,57 @@ Examples:
 
 ---
 
-## wolfProvider OpenSSL Integration
+## Supported Mechanisms
 
-`provider_patch/wolfprovider_devid.patch` is a unified diff against `~/wolfProvider` that closes the wolfProvider devId gap:
+The following mechanisms are implemented and tested in the soft token backend:
 
-- wolfProvider hardcodes `INVALID_DEVID` in all key init calls, bypassing wolfCrypt's device callback mechanism
-- The patch adds `int devId` to `WOLFPROV_CTX`, initializes all key types with the `_ex` variants (`wc_InitRsaKey_ex`, `wc_ecc_init_ex`, `wc_InitDhKey_ex`), and exposes `wolfprovider_devid` as a settable OSSL_PARAM
-- With this patch applied, OpenSSL operations through wolfProvider route to whichever wolfCrypt device callback (including wolfHSM's `WH_DEV_ID`) is configured
+| Mechanism | wolfCrypt API |
+|-----------|---------------|
+| `CKM_RSA_PKCS` | `wc_RsaSSL_Sign` / `wc_RsaSSL_Verify` |
+| `CKM_RSA_PKCS_OAEP` | `wc_RsaPublicEncrypt_ex` / `wc_RsaPrivateDecrypt_ex` (`WC_RSA_OAEP_PAD`) |
+| `CKM_RSA_PKCS_PSS` | `wc_RsaPSS_Sign` / `wc_RsaPSS_VerifyCheck` |
+| `CKM_AES_GCM` | `wc_AesGcmEncrypt` / `wc_AesGcmDecrypt` |
+| `CKM_ECDSA` | `wc_ecc_sign_hash` / `wc_ecc_verify_hash` |
+| `CKM_ECDSA_SHA256` | hash-then-sign via wolfCrypt |
+| `CKM_EDDSA` (Ed25519) | `wc_ed25519_sign_msg` / `wc_ed25519_verify_msg` |
+| `C_GenerateKeyPair` (ECC P-256/P-384, RSA, Ed25519) | `wc_ecc_make_key` / `wc_MakeRsaKey` / `wc_ed25519_make_key` |
+| `C_DeriveKey` (ECDH P-256/P-384) | `wc_ecc_shared_secret` |
 
-To apply:
+---
+
+## Compile-Time Configuration
+
+All configuration macros use the `WOLFP11_CFG_` prefix. Defaults are in `wolfp11/wp11_settings.h`; override with `-D` on the compiler command line.
+
+| Macro | Default | Description |
+|-------|---------|-------------|
+| `WOLFP11_CFG_MAX_SESSIONS` | `8` | Maximum simultaneously open sessions [1-256] |
+| `WOLFP11_CFG_MAX_SLOTS` | `16` | Maximum slots (soft + USB) [1-256] |
+| `WOLFP11_CFG_OPENPGP` | `1` | Enable OpenPGP card protocol |
+| `WOLFP11_CFG_USB_BACKEND` | *(undefined)* | Enable USB hardware token backend |
+| `WOLFP11_CFG_WOLFHSM_BACKEND` | *(undefined)* | Enable wolfHSM server backend |
+| `WOLFP11_CFG_USB_FLASH_BACKEND` | *(undefined)* | Enable USB flash drive keystore backend |
+| `WOLFP11_CFG_USB_FLASH_WATCH_DIR` | `"/run/media"` | Directory inotify watches for `.p11k` files (USB flash backend) |
+| `WOLFP11_CFG_FSDIR_BACKEND` | *(undefined)* | Enable filesystem directory keystore backend |
+| `WOLFP11_CFG_FSDIR_PATH` | `"/var/lib/wolfp11"` | Directory inotify watches for `.p11k` files (FSDIR backend) |
+| `WOLFP11_CFG_TEST_USB` | *(undefined)* | Enable hardware-dependent tests |
+| `WOLFP11_CFG_TEST_INOTIFY` | *(undefined)* | Enable timing-sensitive inotify arrival/departure tests |
+
+---
+
+## Testing
 
 ```sh
-cd ~/wolfProvider
-patch -p1 < ~/wolfP11/provider_patch/wolfprovider_devid.patch
+make test
 ```
 
-**Note:** `wc_curve448_init` has no `_ex` variant in wolfCrypt 5.x. ECX keys (Ed25519, X25519, Ed448, X448) do not inherit `devId` from this patch. A full fix requires upstream wolfCrypt changes or a `WP_ECX_INIT` type change in wolfProvider. See the patch header comment for details.
+The test suite covers all modules with mock transports; no hardware is required for the default test run. Hardware-dependent tests are compiled only when `WOLFP11_CFG_TEST_USB` is defined.
+
+Test design rules:
+
+- Tests use independent oracles: known test vectors and cross-validation between backends
+- No test uses the code under test as its own oracle
+- Mock CCID transport is injectable via `wp11_ccid_open_mock()` -- all APDU tests run against the mock, not a real card
 
 ---
 
@@ -336,42 +383,6 @@ If the token has non-standard APDU behavior that is not covered by the quirk fla
 
 ---
 
-## Compile-Time Configuration
-
-All configuration macros use the `WOLFP11_CFG_` prefix. Defaults are in `wolfp11/wp11_settings.h`; override with `-D` on the compiler command line.
-
-| Macro | Default | Description |
-|-------|---------|-------------|
-| `WOLFP11_CFG_MAX_SESSIONS` | `8` | Maximum simultaneously open sessions [1-256] |
-| `WOLFP11_CFG_MAX_SLOTS` | `16` | Maximum slots (soft + USB) [1-256] |
-| `WOLFP11_CFG_OPENPGP` | `1` | Enable OpenPGP card protocol |
-| `WOLFP11_CFG_USB_BACKEND` | *(undefined)* | Enable USB hardware token backend |
-| `WOLFP11_CFG_WOLFHSM_BACKEND` | *(undefined)* | Enable wolfHSM server backend |
-| `WOLFP11_CFG_USB_FLASH_BACKEND` | *(undefined)* | Enable USB flash drive keystore backend |
-| `WOLFP11_CFG_USB_FLASH_WATCH_DIR` | `"/run/media"` | Directory inotify watches for `.p11k` files (USB flash backend) |
-| `WOLFP11_CFG_FSDIR_BACKEND` | *(undefined)* | Enable filesystem directory keystore backend |
-| `WOLFP11_CFG_FSDIR_PATH` | `"/var/lib/wolfp11"` | Directory inotify watches for `.p11k` files (FSDIR backend) |
-| `WOLFP11_CFG_TEST_USB` | *(undefined)* | Enable hardware-dependent tests |
-| `WOLFP11_CFG_TEST_INOTIFY` | *(undefined)* | Enable timing-sensitive inotify arrival/departure tests |
-
----
-
-## Testing
-
-```sh
-make test
-```
-
-The test suite covers all modules with mock transports; no hardware is required for the default test run. Hardware-dependent tests are compiled only when `WOLFP11_CFG_TEST_USB` is defined.
-
-Test design rules:
-
-- Tests use independent oracles: known test vectors and cross-validation between backends
-- No test uses the code under test as its own oracle
-- Mock CCID transport is injectable via `wp11_ccid_open_mock()` -- all APDU tests run against the mock, not a real card
-
----
-
 ## Repository Layout
 
 ```
@@ -409,12 +420,93 @@ wolfP11/
 |   +-- wp11_test_backend_soft.c  Soft backend unit tests
 |   +-- wp11_test_fsdir.c   Filesystem directory backend integration tests
 |   +-- vectors/             APDU test reference data (JSON, spec-derived)
-+-- provider_patch/
-|   +-- wolfprovider_devid.patch  Patch closing wolfProvider devId gap
 +-- Makefile
 +-- BUILD.md                 Agentic build specification
 +-- PRFAQ.md                 Press release and FAQ
 ```
+
+---
+
+## Future Plans
+
+### Virtual PIV card (present as a PIV token)
+
+wolfP11 currently drives hardware PIV tokens as a reader. A planned companion feature inverts this: wolfP11 presents itself _as_ a PIV card so that any PIV-aware application can talk to wolfP11's soft or HSM-backed keys without knowing about PKCS#11 at all.
+
+The implementation requires an APDU responder that handles the six PIV commands (SELECT, VERIFY, GET DATA, GENERAL AUTHENTICATE, CHANGE REFERENCE DATA, GENERATE ASYMMETRIC KEY PAIR) and routes crypto operations to the existing soft or wolfHSM backend. The existing `wp11_proto_piv.c` client code serves as both implementation reference and test oracle for the responder.
+
+Applications connect to the virtual card via a Unix socket using the gpg `--card-device` protocol, which avoids any pcscd dependency. USB gadget emulation (presenting as a physical USB CCID device) is a further option for hardware with Linux USB gadget support.
+
+### Virtual OpenPGP Card 3.4 (present as an OpenPGP token)
+
+The same responder architecture applies to OpenPGP card 3.4. wolfP11's keys would appear to gpg, gpg-agent, and any other OpenPGP card client as a hardware OpenPGP card, enabling smartcard-backed gpg signing and decryption with no hardware token required.
+
+OpenPGP is more complex than PIV: the Application Related Data object (DO 006E) is deeply nested BER-TLV that gpg validates strictly before accepting a card, and a persistent signature counter is mandatory per the spec. The remaining commands (PSO:COMPUTE DIGITAL SIGNATURE, INTERNAL AUTHENTICATE, PSO:DECIPHER, PUT DATA, GENERATE ASYMMETRIC KEY PAIR) map straightforwardly onto wolfCrypt operations.
+
+### wolfTPM backend
+
+wolfSSL's wolfTPM library provides a portable TPM 2.0 interface. Adding a wolfTPM backend to wolfP11 would give hardware-backed key storage on any machine with a TPM 2.0 chip — which includes virtually all modern x86 boards and many ARM boards — with no USB token and no separate secure enclave server required.
+
+TPM belongs in wolfP11 rather than wolfHSM because a TPM is a chip on the same board accessible from the main OS via kernel driver. wolfHSM is designed for isolated execution environments (TrustZone secure world, separate MCU); routing wolfP11 through wolfHSM to reach a local TPM would add a layer without adding a security boundary.
+
+Most PKCS#11 mechanisms map cleanly onto wolfTPM: RSA sign/verify (`TPM_ALG_RSASSA`), RSA-PSS (`TPM_ALG_RSAPSS`), ECDSA over P-256/P-384, ECDH, RSA-OAEP, persistent key storage via `TPM2_EvictControl`, and key import. Three gaps are worth noting upfront:
+
+- **Ed25519**: the TPM 2.0 specification does not define Ed25519; `CKM_EDDSA` cannot be satisfied by any TPM command. The wolfTPM backend would document this as unsupported.
+- **RSA-OAEP with non-empty label**: wolfTPM's `wolfTPM2_RsaEncrypt` / `wolfTPM2_RsaDecrypt` always send a zero-length label despite the underlying `TPM2_RSA_Encrypt` struct supporting it (the label field is `#if 0`'d in the wrapper). A `wolfTPM2_RsaEncryptLabel` variant would close this gap; this is a one-function addition to wolfTPM.
+- **RSA-PSS salt length**: the TPM always uses `sLen = hLen`; `CK_RSA_PKCS_PSS_PARAMS.sLen` cannot be overridden. The backend would reject or document non-standard salt lengths.
+
+### OpenSSL 3.x provider
+
+wolfP11 is designed to sit behind an OpenSSL 3.x provider that routes OpenSSL operations through any wolfP11 backend. The architecture diagram shows this path, but it is currently blocked on [wolfSSL/wolfProvider#390](https://github.com/wolfSSL/wolfProvider/pull/390), which closes the `INVALID_DEVID` gap in wolfProvider. Once that PR merges, completing the provider integration is a priority.
+
+### USB token forwarding over network
+
+wolfP11's daemon-free design makes it a natural forwarding layer: a wolfP11 instance on a machine with a physically attached USB token could expose that token's operations over a Unix or TCP socket to containers, VMs, or remote hosts on the same network. This fills a gap that wolfHSM does not cover — wolfHSM handles remote access to keys stored in a secure enclave, but not forwarding of a USB token's CCID interface.
+
+### Broad key import for USB flash and filesystem directory keystores
+
+The USB flash and filesystem directory backends currently accept private keys in SEC1 DER (ECC) or PKCS#1 DER (RSA) form. The planned target is full parity with the [soft_PKCS11](https://github.com/MarkAtwood/soft_PKCS11) reference implementation, which auto-detects and imports keys from every format a developer or operator is likely to encounter:
+
+**Private key containers:**
+- PEM `RSA PRIVATE KEY` (PKCS#1), `EC PRIVATE KEY` (SEC1), `PRIVATE KEY` (PKCS#8 unencrypted)
+- PEM `ENCRYPTED PRIVATE KEY` (PKCS#8 encrypted — PBES2/PBKDF2 + AES, and PKCS#12 PBE)
+- PKCS#12 / PFX — multi-key files; certificates from CertBags paired to keys by `localKeyID`
+- OpenSSH private key format (new `openssh-key-v1` format; passphrase-protected with bcrypt + AES-256-CTR)
+- PuTTY PPK v2 (SHA-1-HMAC + AES-256-CBC) and PPK v3 (Argon2 + AES-256-CBC)
+- JKS and JCEKS Java keystores (PKCS#8-wrapped private keys)
+- OpenPGP secret key packets (armored and binary; RSA and ECDSA primary or subkeys)
+- GCP service account JSON (`private_key` field)
+- Bare DER — auto-detected as PKCS#1, PKCS#8, or SEC1 by structure
+
+**Certificates:** DER or PEM X.509, stored alongside the key as `CKO_CERTIFICATE` objects. PKCS#12 certificates are paired to their key by `localKeyID` automatically.
+
+**Key algorithms:** RSA (all sizes), EC P-256, EC P-384, Ed25519.
+
+**Post-quantum (planned with wolfCrypt PQC support):** ML-DSA-44/65/87 (`CKM_ML_DSA`) and ML-KEM-512/768/1024 (`CKM_ML_KEM`), matching the PQC key types in the soft_PKCS11 reference.
+
+Format detection is by content (magic bytes, PEM headers, ASN.1 structure), not file extension, so users can import keys without renaming them.
+
+### Full provisioning CLI
+
+The current `wp11` CLI covers inspection (list tokens, list mechanisms). A full provisioning CLI would add: generate key pair, import certificate into a slot, export public key, change PIN, and backup/restore keystore. This would make wolfP11 self-contained for token provisioning without depending on OpenSC tools.
+
+---
+
+## Known Limitations
+
+### wolfProvider — OpenSSL integration blocked on PR #390
+
+wolfProvider hardcodes `INVALID_DEVID` in all key init calls, bypassing wolfCrypt's device callback mechanism. A fix has been submitted upstream as [wolfSSL/wolfProvider#390](https://github.com/wolfSSL/wolfProvider/pull/390). Until that PR merges, the OpenSSL provider layer in the architecture diagram is not functional.
+
+### wolfHSM backend — known limitations
+
+The wolfHSM client API exposes raw RSA modular exponentiation and raw ECDSA. Three features would require wolfHSM upstream additions before wolfP11 can implement them:
+
+| Feature | Status |
+|---------|--------|
+| RSA-PSS and RSA-OAEP | Not implementable on raw mod-exp; needs wolfHSM native PSS/OAEP support |
+| Server-side hash-then-sign | `CKM_ECDSA_SHA256` hashes the message locally before sending digest to server; wolfHSM would need a combined hash-and-sign operation to keep the hash inside the enclave |
+| Key enumeration | No API to list key IDs present on the server; keys must be tracked out-of-band after `C_GenerateKeyPair` |
 
 ---
 
@@ -423,13 +515,44 @@ wolfP11/
 | Project | Role |
 |---------|------|
 | [wolfSSL / wolfCrypt](https://github.com/wolfSSL/wolfssl) | Crypto engine; all algorithm implementations |
-| [wolfProvider](https://github.com/wolfSSL/wolfProvider) | OpenSSL 3.x provider wrapping wolfCrypt; wolfP11 patches the devId gap |
+| [wolfProvider](https://github.com/wolfSSL/wolfProvider) | OpenSSL 3.x provider wrapping wolfCrypt; devId routing fix pending [PR #390](https://github.com/wolfSSL/wolfProvider/pull/390) |
 | [wolfHSM](https://github.com/wolfSSL/wolfHSM) | HSM server; wolfP11 can route PKCS#11 calls to it via WH_DEV_ID |
+
+---
+
+## Commercial Support and Licensing
+
+wolfSSL Inc. provides commercial support, consulting, integration services, NRE, and porting work for wolfP11 and for the wolfSSL ecosystem (wolfCrypt, wolfHSM, wolfProvider) that underlies it. Commercial licenses for wolfSSL are also available for deployments where the GPL-3.0 copyleft terms are not acceptable.
+
+| Need | Contact |
+|------|---------|
+| General questions, porting, FIPS | facts@wolfssl.com |
+| Commercial licensing | licensing@wolfssl.com |
+| Technical support | support@wolfssl.com |
+| Phone | +1 (425) 245-8247 |
+| Web | https://www.wolfssl.com/contact/ |
 
 ---
 
 ## License
 
-wolfP11 is released under the **GNU General Public License v3.0** (GPL-3.0).
+wolfP11 is copyright (C) 2026 wolfSSL Inc. and is dual-licensed:
 
-See [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html) for the full license text.
+**GPL-3.0** — free for open-source use under the GNU General Public License
+v3.0. See [https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html) or the `LICENSE` file at the root of this repository.
+
+**Commercial** — if the GPL-3.0 copyleft terms are not acceptable for your
+deployment (proprietary product, closed-source distribution, OEM embedding),
+wolfSSL Inc. sells commercial licenses that remove the copyleft obligation.
+Contact [licensing@wolfssl.com](mailto:licensing@wolfssl.com) or
++1 (425) 245-8247.
+
+**wolfSSL / wolfCrypt** (required dependency): the same dual-license applies —
+GPL-3.0 for open-source use, or a commercial license from wolfSSL Inc. for
+proprietary deployments. Distributing a product that links wolfP11 against
+wolfSSL under GPL-3.0 subjects the combined work to GPL-3.0 copyleft.
+
+**FIPS 140-3**: wolfCrypt holds a current FIPS 140-3 certificate (#4718).
+FIPS-ready deployments require the separately licensed wolfCrypt FIPS
+boundary build; the standard open-source wolfSSL build is not a validated
+module.
