@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-x07g",
+  "title": "research: CCID desync state is permanent with no reset API",
+  "description": "When an IN transfer fails after a successful OUT transfer, wp11_ccid_ctx_t sets desync=1 and all future wp11_ccid_apdu() calls return WP11_CCID_ERR_USB immediately. Callers cannot distinguish transient from permanent errors, cannot reset the context, and cannot issue an Abort command (CCID INS 0x21) to recover. Research: (1) how does PKCS#11 layer handle repeated WP11_CCID_ERR_USB -- does it remove the slot or spin? (2) Is wp11_ccid_reset() worth adding, or is close+reopen sufficient?",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:58:45Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T17:50:44Z"
+}

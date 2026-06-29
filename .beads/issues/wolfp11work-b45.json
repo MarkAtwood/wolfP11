@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-b45",
+  "title": "fix: mlock() failure silently leaves soft-token PIN in swappable memory",
+  "description": "In src/wp11_pkcs11.c C_Login (~line 2543), mlock() is called on the soft_pin buffer but its return code is not checked. mlock() can fail with ENOMEM (lock limit exceeded), EPERM (no CAP_IPC_LOCK privilege), or EINVAL.\n\nSecurity impact: if mlock fails, soft_pin remains in pageable memory. The PIN and derived key-encryption-key can be written to swap, where it may persist after process exit and be recoverable by a privileged attacker reading the swap device.\n\nThe munlock at C_Logout is explicitly documented as 'best-effort; ignore failure' \u2014 correct. But the mlock at login must not be silent, because it determines whether the security property is met.\n\nFix options (in order of preference):\n1. Fail fast: if mlock() != 0, return CKR_GENERAL_ERROR \u2014 PIN caching is a security requirement, not optional.\n2. Warn and continue: log a warning to stderr that the PIN is not memory-locked, allow login but degrade gracefully.\n\nAdd comment at the mlock call: 'mlock is required for security \u2014 PIN must not reach swap storage. Return error if locking fails.'",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:06:29Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:13:39Z"
+}

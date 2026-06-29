@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-zjvb",
+  "title": "bug: wolfHSM ECDSA_SHA256 sign unguarded size_t cast",
+  "description": "In wp11_backend_wolfhsm.c:341, wc_Sha256Update receives (word32)inlen without a prior UINT32_MAX guard. On 64-bit targets with inlen>UINT32_MAX the cast silently truncates, producing a hash over fewer bytes than intended -- the signature is computed over the wrong hash. The adjacent CKM_ECDSA path at line 349 correctly guards with UINT16_MAX; ECDSA_SHA256 does not. Same issue at line 448 on the verify path. Fix: add guard matching the soft backend pattern at wp11_backend_soft.c:390.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:49:35Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-10T23:49:39Z"
+}

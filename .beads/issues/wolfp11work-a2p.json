@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-a2p",
+  "title": "C_SeedRandom returns wrong error code",
+  "description": "C_SeedRandom returns CKR_RANDOM_SEED_NOT_SUPPORTED (0x00000120) but pkcs11test expects CKR_RANDOM_NO_RNG (0x00000121) when seeding is not supported.\n\nPer PKCS#11 spec section 11.15, when a token does not have/use a seeding mechanism, C_SeedRandom should return CKR_RANDOM_NO_RNG. CKR_RANDOM_SEED_NOT_SUPPORTED means the operation is valid but seeding is not accepted (different semantic).\n\nwolfP11's C_SeedRandom implementation returns the more specific CKR_RANDOM_SEED_NOT_SUPPORTED. pkcs11test (and SoftHSM2) use CKR_RANDOM_NO_RNG.\n\nImpact: ReadOnlySessionTest.SeedRandom fails.\n\nFix: change C_SeedRandom to return CKR_RANDOM_NO_RNG instead of CKR_RANDOM_SEED_NOT_SUPPORTED.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T00:40:28Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T01:14:35Z"
+}

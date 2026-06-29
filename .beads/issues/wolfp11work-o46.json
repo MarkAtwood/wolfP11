@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-o46",
+  "title": "fix: libusb_bulk_transfer errors not differentiated \u2014 timeout vs. device removal",
+  "description": "In src/wp11_ccid.c:298 and 306, any non-zero libusb_bulk_transfer return is mapped to WP11_CCID_ERR_USB. This collapses two meaningfully different conditions:\n- LIBUSB_ERROR_TIMEOUT: device is present but slow \u2014 caller could retry\n- LIBUSB_ERROR_NO_DEVICE: device was physically removed \u2014 caller should call slot_remove()\n- LIBUSB_ERROR_PIPE: endpoint stall \u2014 requires libusb_clear_halt() before retry\n\nCurrent behavior: all three conditions cause the operation to fail permanently. The caller cannot distinguish 'retry' from 'remove the slot'. A token that takes >1s to sign (common on RSA-2048 operations) will be treated as removed.\n\nFix:\n1. Add WP11_CCID_ERR_TIMEOUT to the error enum\n2. Map LIBUSB_ERROR_TIMEOUT \u2192 WP11_CCID_ERR_TIMEOUT (retryable)\n3. Map LIBUSB_ERROR_NO_DEVICE \u2192 WP11_CCID_ERR_NO_CARD (trigger slot removal)\n4. Map LIBUSB_ERROR_PIPE \u2192 attempt libusb_clear_halt() then WP11_CCID_ERR_USB\n5. In the PKCS#11 layer, map WP11_CCID_ERR_TIMEOUT \u2192 CKR_DEVICE_ERROR with retry semantics, WP11_CCID_ERR_NO_CARD \u2192 trigger hotplug slot_remove\n\nAdd comment: 'LIBUSB_ERROR_TIMEOUT is not device removal \u2014 do not conflate these. RSA-2048 sign on slow tokens can take >2s.'",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:07:12Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:43Z"
+}

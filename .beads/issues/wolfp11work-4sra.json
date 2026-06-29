@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4sra",
+  "title": "bug: CBOR skip loop DoS on malformed keystore input",
+  "description": "cbor_skip() in wp11_keystore.c guards against SIZE_MAX overflow with if (val > SIZE_MAX/2) but does not bound the loop iteration count independently. A crafted .p11k file with a CBOR map header claiming 2^62 pairs passes the overflow check (2^62 < 2^63) and causes O(2^62) iterations before the per-iteration buffer-exhaustion check fires. Parsing a single malicious byte sequence locks the process. Fix: add a secondary bound: if (val > reasonable_max) return WP11_KEYSTORE_ERR_CBOR, where reasonable_max is e.g. WP11_KEYSTORE_MAX_KEYS * 2.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:58:18Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-09T17:38:02Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-rmed",
+  "title": "test: flash sign roundtrip oracle should reimport DER from keystore",
+  "description": "test/wp11_test_pkcs11.c -- test_flash_pkcs11_sign_roundtrip() keeps the EC key in memory (orig_ecc) as the oracle for signature verification. This does not prove that the keystore serialization/deserialization round-trip preserves key bits correctly: if the DER write corrupts bits but the in-memory key is identical, the test still passes. Fix: after loading the keystore, export the private key DER from the loaded key object, import it into a fresh ecc_key with wc_EccPrivateKeyDecode(), and verify the signature with that. This independently proves the keystore preserved the private key.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:27Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T00:06:42Z"
+}

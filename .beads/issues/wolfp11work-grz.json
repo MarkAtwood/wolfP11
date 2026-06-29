@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-grz",
+  "title": "wolfHSM key_size field not validated against server at setup time",
+  "description": "wp11_wolfhsm_key_priv_t.key_size is set by the caller at alloc time and used to size PKCS#1 v1.5 padding in hsm_sign. There is no verification that key_size matches the actual RSA modulus size on the wolfHSM server. A provisioning error (wrong key_size) causes: hsm_sign applies padding to the wrong modulus length \u2192 server rejects the padded message (wrong length for the key) \u2192 operation fails. This is fail-safe (no security breach), but the error message gives no hint about the mismatch. Consider calling wh_Client_RsaGetSize at setup time to validate. Alternatively, document that key_size is the caller's responsibility.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:28:06Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T21:37:57Z"
+}

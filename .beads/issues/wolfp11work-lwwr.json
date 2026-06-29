@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-lwwr",
+  "title": "Doc: fsdir ops struct free_key_priv comment missing wolfP11-be5 ref",
+  "description": "In wp11_backend_usb_flash.c, the NULL free_key_priv slot is annotated with the wolfP11-be5 tag and mentions ks_slot_clear_keys. In wp11_backend_fsdir.c, the equivalent comment is shorter and omits the wolfP11-be5 tag and the ks_slot_clear_keys reference. The ks_slot_clear_keys function in wp11_pkcs11.c uses free_key_priv == NULL as a sentinel to identify keystore-backend keys; this invariant is load-bearing. Fix: align the fsdir comment with the flash comment, adding the wolfP11-be5 tag and the ks_slot_clear_keys reference.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T21:49:07Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T22:27:11Z"
+}

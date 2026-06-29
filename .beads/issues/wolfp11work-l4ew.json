@@ -1,0 +1,14 @@
+{
+  "id": "wolfp11work-l4ew",
+  "title": "research: CLI path traversal risk assessment",
+  "description": "The CLI passes user-supplied keystore paths directly to wp11_keystore_load/save without validating for '..' components or symlinks (wp11_cli.c, all keystore subcommands). Whether this is exploitable depends on the trust model: if the CLI is invoked interactively by the key owner, the user controls their own paths. If keystore paths can come from config files, environment variables, or scripts with untrusted input, path traversal is a real risk. Research: (1) document the intended trust model -- is the CLI user always the key owner? (2) identify all paths where the keystore path is not directly typed by the user (env vars, config files, scripts). (3) decide if realpath() validation or '..' rejection is warranted.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:42:44Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-11T00:18:31Z",
+  "notes": "RESOLVED: Keystore paths use O_NOFOLLOW (prevents symlink redirect). Key/cert files use fopen() (follows symlinks) but this is acceptable for a local user CLI tool - not a privilege-escalation surface. No code change needed."
+}

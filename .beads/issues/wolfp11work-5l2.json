@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-5l2",
+  "title": "flash_decrypt: missing wc_RsaSetRNG causes RSA decrypt to always fail",
+  "description": "flash_decrypt in src/wp11_backend_usb_flash.c initializes an RsaKey and calls wc_RsaPrivateKeyDecode then wc_RsaPrivateDecrypt, but never calls wc_RsaSetRNG. When WC_RSA_BLINDING is enabled (the wolfCrypt default), wc_RsaPrivateDecrypt pulls the RNG out of the key struct internally to generate a blinding factor. If that pointer is NULL (never set), it returns BAD_FUNC_ARG immediately before doing any crypto. Every RSA decrypt via a flash key fails unconditionally. The sign path works because wc_RsaSSL_Sign takes an explicit RNG parameter and does not use the one in the key struct. Fix: add WC_RNG, call wc_InitRng, wc_RsaSetRNG, decrypt, wc_FreeRng \u2014 matching the pattern already in flash_sign and in wp11_soft_key_new_rsa2048.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T16:07:18Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-08T16:16:18Z"
+}

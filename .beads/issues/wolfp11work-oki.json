@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-oki",
+  "title": "BUG: wp11_piv_sign BER-TLV length truncated for challengelen >= 124",
+  "description": "wp11_proto_piv.c:299,307 encodes the DAT container length and challenge length as single bytes via (uint8_t) casts. For challengelen >= 124, dat_content_len = 2+2+challengelen >= 128, which requires multi-byte BER-TLV encoding per ISO 7816-4 Section 5.2.2. The cast truncates to a single byte, producing invalid encodings: challengelen=124 \u2192 dat_content_len=128 \u2192 0x80 (indefinite-length marker, illegal in PIV), challengelen=125 \u2192 dat_content_len=129 \u2192 0x81 (1-byte long form, causes card to misparse next byte as length). The Lc field has the same truncation. Current use cases (EC with 32-48 byte hash inputs) are not affected. RSA-2048 with 256-byte challenge is rejected by the existing challengelen > 0xFFu guard. The affected range (challengelen 124..255) is unusual but callable. Fix requires adding multi-byte length encoding when dat_content_len >= 128. ber_len_decode() in the same file handles decoding correctly; the encoder needs the same treatment. Add a regression test with challengelen >= 128 and a mock that verifies the wire bytes.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:33:54Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T05:58:47Z"
+}

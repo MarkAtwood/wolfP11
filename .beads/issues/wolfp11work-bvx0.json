@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-bvx0",
+  "title": "cleanup: CLI parse_slot_id() helper to remove strtoul repetition",
+  "description": "The strtoul validation pattern (errno=0; strtoul; check errno, check end==str, check *end\\!='\\0') is repeated three times in wp11_cli.c (cmd_list_keys ~line 274, cmd_attest ~line 1427, cmd_list_mechanisms ~line 1495). Each copy is also missing the range check against WOLFP11_CFG_MAX_SLOTS (see wolfP11-g5j3). Extract a static helper parse_slot_id(str, out) that performs all validation in one place. Fixes the range check once rather than three times.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:59:29Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T17:42:46Z"
+}

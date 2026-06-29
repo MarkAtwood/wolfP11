@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-62c",
+  "title": "BUG: RSA verify uses fixed 512-byte stack buffer, silent overflow for RSA-4096",
+  "description": "soft_verify() in wp11_backend_soft.c calls wc_RsaSSL_Verify() with a 512-byte output buffer. RSA-4096 decrypts to a 512-byte block exactly, but the buffer size matches only if the key is exactly 4096 bits. A crafted or mismatched key could write past the buffer. Also wc_RsaSSL_Verify writes to an internal buffer and returns a pointer; the 512-byte out[] is passed as the output but the wolfCrypt API may or may not use it directly. Research the exact wc_RsaSSL_Verify API contract, then fix if it can overflow.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:10:42Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-07T22:22:03Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:06Z"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-pqow",
+  "title": "C_GetAttributeValue: cross-slot object handle not rejected",
+  "description": "C_GetAttributeValue does not verify obj->slot_id matches the session's slot. C_DestroyObject does this check and returns CKR_OBJECT_HANDLE_INVALID correctly. C_GetAttributeValue (and likely C_Sign, C_Encrypt) skip this validation. Per PKCS#11 sec.11.7, object handles are slot-scoped; a session on slot 0 must not access objects belonging to slot 1.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:02Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:15:12Z"
+}

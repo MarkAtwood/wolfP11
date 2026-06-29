@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-yn8r",
+  "title": "bug: HMAC C_Sign size-query leaves operation active (PKCS#11 violation)",
+  "description": "In C_Sign(), when pSignature==NULL (size-query per PKCS#11 2.40 sec.11.11), the HMAC path returns the output size but leaves s->sign_active=1. PKCS#11 spec says size-query is an ordinary completion: the operation must be terminated. Consequence: next C_SignInit fails with CKR_OPERATION_ACTIVE. Asymmetric path correctly terminates. Fix: clear s->sign_active before returning on HMAC size-query.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:57:51Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-09T17:37:39Z"
+}

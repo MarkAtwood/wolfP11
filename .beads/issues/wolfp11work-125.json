@@ -1,0 +1,26 @@
+{
+  "id": "wolfp11work-125",
+  "title": "hp-3: libusb hotplug callback + background event thread",
+  "description": "Under WOLFP11_CFG_USB_BACKEND: register libusb_hotplug_register_callback with LIBUSB_HOTPLUG_ENUMERATE at C_Initialize. Spawn background pthread calling libusb_handle_events_timeout in a loop. On arrival: lookup VID/PID in token_db, call slot_add() under g_lock, push event. On departure: call slot_remove() under g_lock, invalidate sessions on that slot, push event. Stop thread in C_Finalize by setting running=0 + libusb_interrupt_event_handler + pthread_join (outside g_lock to avoid deadlock with callback).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:58:33Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-07T23:07:26Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-9nd",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:58:39Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-h30",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:58:37Z"
+    }
+  ]
+}

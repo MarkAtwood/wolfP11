@@ -1,0 +1,27 @@
+{
+  "id": "wolfp11work-m4r5",
+  "title": "fs-dir tests: dynamic inotify (add/remove after init)",
+  "description": "Test the inotify path: (1) call C_Initialize with empty dir, then write slot-0.p11k into the dir, assert C_WaitForSlotEvent fires and slot 0 appears; (2) start with slot-0.p11k present, delete it, assert C_WaitForSlotEvent fires and slot 0 disappears. Use short timeout (500ms) to keep test suite fast. Guard with WOLFP11_CFG_TEST_INOTIFY if timing is too fragile for CI.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:35:33Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T18:34:54Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-dz3d",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:35:47Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-pvmn",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:35:46Z"
+    }
+  ]
+}

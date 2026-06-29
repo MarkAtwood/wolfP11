@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-7z5",
+  "title": "Add make install target",
+  "description": "The Makefile has no install target. Users must manually copy build/libwolfp11.so and build/wp11 to system directories. This is not standard and makes packaging (Debian, Yocto, Buildroot) harder.\n\nAdd:\n  install: all\n    install -m 0755  /lib/\n    install -m 0755  /bin/\n    install -m 0644 wolfp11/*.h /include/wolfp11/\n\nAlso add an uninstall target. PREFIX should default to /usr/local. DESTDIR should default to empty for packaging support.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:29Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T16:07:39Z"
+}

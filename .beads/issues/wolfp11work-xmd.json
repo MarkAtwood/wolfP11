@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-xmd",
+  "title": "fs-dir: crypto operations (wp11_backend_fs_dir.c)",
+  "description": "Implement src/wp11_backend_fs_dir.c: the wp11_backend_ops_t vtable for the fs-dir backend (sign, verify, decrypt). Mirrors wp11_backend_usb_flash.c \u2014 loads key material from the slot's .p11k keystore entry and delegates to wolfCrypt. ~300 lines. Depends on the header bead.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:35:21Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T18:29:08Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-rrn",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:35:38Z"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6vz",
+  "title": "volatile-only thread flags are not memory-safe on ARM/MIPS",
+  "description": "g_event_thread_running and g_flash_thread_running in wp11_pkcs11.c are declared volatile and written by the main thread, read by background threads. volatile prevents compiler reordering but provides no hardware memory barrier. On weakly-ordered architectures (ARM, MIPS) a store from one core may not be visible to another core in time. Thread sees stale value, exits late or never.\n\nFix: replace with C11 atomic_int (stdatomic.h) or a pthread_mutex + condition variable for the exit signal. Add comment explaining why atomic is required (not just volatile).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:31:45Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T16:07:37Z"
+}

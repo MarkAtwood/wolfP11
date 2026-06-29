@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-qjo",
+  "title": "wp11_settings.h: no compile-time bounds on MAX_SESSIONS/MAX_SLOTS",
+  "description": "wolfp11/wp11_settings.h defines WOLFP11_CFG_MAX_SESSIONS (default 8) and WOLFP11_CFG_MAX_SLOTS (default 16) with no validation. A user who sets MAX_SESSIONS=0 gets a zero-element global array and a divide-by-zero or always-failing slot lookup. A value like 100000 silently allocates multi-MB BSS.\n\nAdd static_assert guards:\n  #if WOLFP11_CFG_MAX_SESSIONS < 1 || WOLFP11_CFG_MAX_SESSIONS > 256\n  #error WOLFP11_CFG_MAX_SESSIONS must be 1-256\n  #endif\n\nSame for MAX_SLOTS. Add comment explaining the range choices.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:41Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T16:07:40Z"
+}

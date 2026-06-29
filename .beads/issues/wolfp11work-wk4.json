@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-wk4",
+  "title": "fix: CCID partial I/O \u2014 OUT transfer succeeds but IN fails, device state undefined",
+  "description": "In src/wp11_ccid.c:295-310, the CCID exchange is two libusb_bulk_transfer calls: OUT (send APDU to device), then IN (receive response). If the OUT succeeds but the IN fails (LIBUSB_ERROR_TIMEOUT, LIBUSB_ERROR_NO_DEVICE, etc.), the function returns WP11_CCID_ERR_USB \u2014 but the device has already processed the command and is waiting to send its response.\n\nOn the next CCID call, the sequence number will be incremented but the device may respond with the stale response from the previous command. The sequence number check (line 320) should catch this \u2014 but only if the device sends the old response rather than discarding it.\n\nResult: CCID conversation is desynchronized. Subsequent commands may get wrong responses until the device is reset.\n\nFix:\n1. On IN failure after a successful OUT, send a CCID Abort (PC_to_RDR_Abort) command to resynchronize the device. The CCID spec r1.10 \u00a76.1.6 defines this command.\n2. Or: close and reopen the USB interface (libusb_release_interface / libusb_claim_interface) which resets the CCID state machine.\n3. At minimum: mark the ccid context as 'desynchronized' and fail all subsequent operations until the caller reconnects.\nAdd comment: 'CCID r1.10 \u00a76.1.6: Abort command required to resynchronize after partial exchange.'",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:06:37Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:44Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-iak",
+  "title": "BUG: slot_remove_flash leaks keystore when drive departs while logged in",
+  "description": "slot_remove_flash and slot_remove_flash_dir (src/wp11_pkcs11.c lines ~410-463) invalidate sessions and clear token_present but do not free g_slots[i].keystore. If the user was logged in when the USB drive was removed, the keystore (with mlock'd key material) is never freed until C_Finalize. C_Logout cannot recover it because sessions were invalidated (logged_in==0 so C_Logout returns CKR_USER_NOT_LOGGED_IN without entering the keystore-free path). Consequence: mlock pages stay pinned; on embedded systems with tight RLIMIT_MEMLOCK this causes the next wp11_keystore_load to fail with WP11_KEYSTORE_ERR_MLOCK. Fix: in slot_remove_flash, before clearing token_present, call flash_slot_clear_keys(i) then wp11_keystore_free(g_slots[i].keystore) and NULL the pointer. Same for slot_remove_flash_dir. Add inline comment explaining why the clear-then-free ordering matters (same as C_Finalize).",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:03:00Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-08T05:13:35Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-uu5",
+  "title": "fix: C_FindObjects ignores template \u2014 returns all slot objects",
+  "description": "In wp11_pkcs11.c, C_FindObjectsInit ignores the pTemplate parameter entirely. C_FindObjects filters only by slot_id, not by any template attribute (CKA_CLASS, CKA_KEY_TYPE, CKA_ID, etc.).\n\nPKCS#11 2.40 \u00a711.9 requires template matching: only objects whose attributes match every attribute in the template are returned. Returning all objects violates the spec.\n\nImpact: Any application that discovers objects by class (CKO_PRIVATE_KEY), key type (CKK_EC), or ID will get unexpected objects back, breaking standard PKCS#11 usage patterns and making this library unusable as a drop-in for compliant applications.\n\nFix: Implement template attribute matching in C_FindObjects. For each candidate object, check every template attribute via get_attribute(obj, type) == template_value. Return only objects that match all attributes.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:11Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:32:57Z"
+}

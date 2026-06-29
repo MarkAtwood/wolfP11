@@ -1,0 +1,27 @@
+{
+  "id": "wolfp11work-dbd",
+  "title": "wolfHSM test suite: wp11_test_backend_wolfhsm.c with SHM loopback",
+  "description": "Create a test module for the wolfHSM backend. Tests must use an independent oracle \u2014 not the code under test as its own verifier.\n\nStructure:\n- test/wp11_test_backend_wolfhsm.c + test/wp11_test_backend_wolfhsm.h\n- Start an in-process wolfHSM server using the SHM transport before tests run; tear it down after\n- Provision known test keys on the server (reference vectors from NIST CAVS or RFC test vectors)\n\nTest cases required:\n1. sign_ecdsa_p256: Sign a known hash with a known P-256 key; verify the signature using wolfCrypt directly (not via wolfHSM backend) \u2014 cross-validation oracle\n2. verify_ecdsa_p256: Pass a known-good signature to hsm_verify; check return == 0; pass a corrupted signature; check return < 0\n3. decrypt_rsa_pkcs1: Encrypt a known plaintext with the RSA public key using wolfCrypt directly; pass ciphertext to hsm_decrypt; verify recovered plaintext matches\n4. derive_ecdh_p256: Two keys on server; each derives with the other's public key; shared secrets must match (symmetry oracle identical to soft backend test)\n5. error_notready: Simulate WH_ERROR_NOTREADY from the server (if wolfHSM server can be made to return this) and verify the backend returns WP11_BACKEND_ERR_NOT_READY; this covers wolfP11-8o2\n\nBuild gate: only compiled when WOLFHSM=1; guarded by WOLFP11_CFG_WOLFHSM_BACKEND.\n\nAcceptance criteria:\n- All 5 test cases pass with zero cross-validation discrepancies\n- Test binary does not require a separate server process (in-process SHM server)\n- wolfP11-8o2 (WH_ERROR_NOTREADY retry) is validated by test case 5 and can be closed",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T02:53:27Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-09T04:53:44Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-50f",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T19:53:38Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-e3y",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T19:53:39Z"
+    }
+  ]
+}

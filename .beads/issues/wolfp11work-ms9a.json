@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ms9a",
+  "title": "extract_sw() in OpenPGP missing defensive bounds check",
+  "description": "src/wp11_proto_openpgp.c extract_sw() reads resp[resplen-2] and resp[resplen-1] with no validation of resplen. All current callers check resplen >= 2 before calling, but the function itself has no guard. If ever called from new code or copied to another module, it causes buffer over-read. wp11_proto_piv.c has the defensive check inside piv_get_sw(); OpenPGP should match.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:03Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:15:11Z"
+}

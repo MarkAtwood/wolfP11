@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-fmrd",
+  "title": "bug: thread login tests fail with USBFLASH=1",
+  "description": "When compiling with USBFLASH=1, test_concurrent_login_same_slot and test_concurrent_login_logout_interleave in wp11_test_pkcs11_threads.c fail with rv=258 (CKR_USER_PIN_NOT_INITIALIZED). The soft token C_Login fails because the flash backend changes login behavior -- the test doesn't call setenv(WOLFP11_SOFT_KEYSTORE_PATH) and the flash backend changes how the soft token initializes its PIN state. Needs investigation of how USBFLASH=1 changes soft token login behavior, and whether the thread tests need a setenv call to disable keystore-backed login.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T00:28:03Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T00:31:03Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-v4mh",
+  "title": "Test suite: 8 flash tests silently pass when setup fails",
+  "description": "test_flash_pkcs11_login_correct_pin and 7 sibling tests return 0 (zero failures) when flash_test_make_keystore() fails. The actual test code never runs. A broken RNG, keygen, or keystore path causes the entire test category to report 'no failures'. The test driver cannot distinguish 'setup failed, nothing tested' from 'tested and passed'.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:18Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:15:13Z"
+}

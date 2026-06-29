@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-bac9",
+  "title": "doc: add summary comment to piv_sw_to_err() listing handled SW codes",
+  "description": "wp11_proto_piv.c:225-234 -- piv_sw_to_err() maps specific PIV status words to error codes but has no comment listing which SW values it handles. A contributor adding SW handling must read the implementation. Add a header comment: list all SW values explicitly handled (69 82, 69 85, 6A 81, 6A 88) and note that all others fall through to WP11_PIV_ERR_SW. Per review rubric: this is a readability issue with engineering basis -- callers cannot distinguish expected from unexpected SWs without reading the body.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:49Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-11T00:14:35Z"
+}

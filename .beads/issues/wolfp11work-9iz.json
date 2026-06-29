@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-9iz",
+  "title": "fix: C_Initialize and C_Finalize do not reject non-NULL pReserved",
+  "description": "pkcs11test Init.InitArgsBadReserved and PKCS11Test.FailedTermination confirm:\n- C_Initialize with init_args.pReserved != NULL returns CKR_OK (should be CKR_ARGUMENTS_BAD)\n- C_Finalize with pReserved != NULL does not return CKR_ARGUMENTS_BAD\n\nPKCS#11 2.40 \u00a711.4: both C_Initialize and C_Finalize must return CKR_ARGUMENTS_BAD if pReserved is not NULL_PTR.\n\nFix: In C_Initialize, after checking for already-initialized, validate: if (pInitArgs != NULL && pInitArgs->pReserved != NULL) return CKR_ARGUMENTS_BAD. In C_Finalize, validate: if (pReserved != NULL) return CKR_ARGUMENTS_BAD.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:39:21Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:29:32Z"
+}

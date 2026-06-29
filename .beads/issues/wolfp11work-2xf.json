@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-2xf",
+  "title": "fix: PIV code does not handle SW 6985 (touch timeout / conditions not satisfied)",
+  "description": "SW 6985 (Conditions of use not satisfied) is returned by YubiKey 5 and similar tokens when:\n- The user did not touch the device within the touch-confirmation timeout (typically 15s)\n- A PIN verification is required before the crypto operation but was not performed\n- The key slot requires user presence and it was not confirmed\n\nwolfP11 currently returns WP11_PIV_ERR_SW for 6985, which maps to CKR_FUNCTION_FAILED. This is wrong \u2014 the caller has no way to tell whether the operation failed due to a protocol error, a bad card, or the user not touching the hardware token.\n\nFix:\n1. Add WP11_PIV_ERR_USER_PRESENCE to the wp11_piv_err_t enum in wp11_proto_piv.h\n2. In wp11_piv_sign() and wp11_piv_ecdh(), check: if (sw1 == 0x69 && sw2 == 0x85) return WP11_PIV_ERR_USER_PRESENCE;\n3. In wp11_pkcs11.c, map WP11_PIV_ERR_USER_PRESENCE to CKR_USER_NOT_LOGGED_IN (closest PKCS#11 analog) or CKR_PIN_EXPIRED if the token requires re-verification\n4. Add comment: 'SW 6985: YubiKey touch timeout or PIN re-auth required. Not a protocol error \u2014 user action needed.'\n\nThis is the most common real-world failure mode for PIV tokens with touch confirmation enabled.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:01:00Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:56Z"
+}

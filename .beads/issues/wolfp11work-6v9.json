@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6v9",
+  "title": "wp11_ccid.h: document SW1/SW2 presence in response buffer",
+  "description": "wp11_ccid_apdu() documentation in wolfp11/wp11_ccid.h does not state whether the two-byte ISO 7816 status word (SW1/SW2) is included in the response buffer written to *resplen. Every PIV and OpenPGP protocol consumer assumes it is there and reads resp[*resplen-2] and resp[*resplen-1] as SW1/SW2. If a future implementor misreads the API contract and strips or excludes the status bytes, all protocol parsing breaks silently.\n\nAdd to the function docstring: 'On success, resp[0..*resplen-3] contains the response data and resp[*resplen-2...*resplen-1] contains the ISO 7816 SW1/SW2 status bytes. *resplen is always >= 2 on success.'",
+  "status": "closed",
+  "priority": 4,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:47Z",
+  "updated_at": "2026-05-01T04:55:10Z",
+  "closed_at": "2026-04-09T16:07:40Z"
+}

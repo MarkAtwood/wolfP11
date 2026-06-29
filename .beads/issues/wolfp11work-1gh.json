@@ -1,0 +1,21 @@
+{
+  "id": "wolfp11work-1gh",
+  "title": "wolfHSM C_ImportKey: import DER private key to server",
+  "description": "Implement key import for wolfHSM slots: accept a DER-encoded private key via C_CreateObject and store it on the server, receiving a whKeyId back.\n\nWhat needs to be done:\n- In C_CreateObject, add a wolfHSM path for CKO_PRIVATE_KEY when the session slot is WP11_PROTO_WOLFHSM\n- Parse the DER from CKA_VALUE attribute (for secret keys) or from CKA_EC_PARAMS+CKA_VALUE (for EC) or CKA_MODULUS+CKA_PRIVATE_EXPONENT etc. (for RSA) to reconstruct the key\n- Call wh_Client_KeyImport (or equivalent) to push the DER to the server; server returns a whKeyId\n- Allocate wp11_wolfhsm_key_priv_t and create a g_keys[] entry with the returned key_id\n- Return the object handle to the caller\n\nDesign decisions:\n- CKA_TOKEN=TRUE: key is stored persistently on server NVM; persists across C_Finalize\n- CKA_TOKEN=FALSE: key is stored in server RAM only; evicted at C_Logout (use wh_Client_KeyEvict in the C_Logout or C_DestroyObject path)\n- Private key material is not returned by C_GetAttributeValue (CKA_EXTRACTABLE=FALSE by default for imported keys)\n\nThis is lower priority than key discovery and generation because most wolfHSM deployments use server-side provisioning tools rather than PKCS#11 import.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T02:53:13Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T05:24:53Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-s5x",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T19:53:38Z"
+    }
+  ]
+}

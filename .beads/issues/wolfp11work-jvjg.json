@@ -1,0 +1,14 @@
+{
+  "id": "wolfp11work-jvjg",
+  "title": "Verify: CCID single bulk transfer assumption for all USB speeds",
+  "description": "wp11_ccid_apdu() issues a single libusb_bulk_transfer() for the IN direction and trusts it returns the complete CCID frame. libusb reassembles multi-packet transfers automatically so this is correct for transfers that fit within the requested byte count. However: (1) confirm that libusb_bulk_transfer guarantees delivery of a complete transfer (not just a complete USB packet) for CCID bulk endpoints on both full-speed (64-byte packets) and high-speed (512-byte packets) devices; (2) confirm no tested YubiKey or NitroKey model sends a CCID RDR_to_PC_DataBlock that libusb returns in two separate transfer completions. If the assumption holds, close this bead. If not, add a read loop.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:37:32Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-11T00:18:29Z",
+  "notes": "RESOLVED: libusb_bulk_transfer() handles USB packet reassembly internally per libusb API contract. The single-call model is correct. If libusb returns a short transfer, the bounds check at line 419 (frame_in_len < CCID_HEADER_LEN + resp_dw_length) catches it and returns WP11_CCID_ERR_USB. No code change needed."
+}

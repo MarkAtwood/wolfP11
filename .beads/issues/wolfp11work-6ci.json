@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6ci",
+  "title": "Epic: filesystem directory keystore backend",
+  "description": "Add a new opt-in backend (FSDIR=1) that loads .p11k keystore files from a configured filesystem directory instead of USB removable media. Each .p11k file in the directory maps to one PKCS#11 slot. Supports containers, embedded Linux, CI/CD, and any deployment where USB removable media is unavailable or undesirable. The wp11_keystore.c AES-GCM format is already implemented; this epic wires it up to a directory source with optional inotify watching instead of USB hotplug detection.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:28:39Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T18:28:32Z"
+}

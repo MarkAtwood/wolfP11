@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-7fr",
+  "title": "TEST: JSON vector files are non-empty but never parsed \u2014 tests use hardcoded hex",
+  "description": "piv_apdu.json and openpgp_apdu.json exist and the test suite verifies they are non-empty. But no test reads the vectors from the files; all expected-APDU hex strings are hardcoded in the test C source. The files serve as documentation. Either: (1) add a parser and drive tests from the JSON (strong: catches drift between JSON and code), or (2) explicitly document that the files are human-readable spec references, not machine-driven fixtures, and the C code IS the test oracle. Pick one and commit to it.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:11:46Z",
+  "updated_at": "2026-05-01T04:55:10Z",
+  "closed_at": "2026-04-07T22:36:54Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:10Z"
+    }
+  ]
+}

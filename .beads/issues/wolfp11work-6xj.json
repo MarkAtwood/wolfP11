@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6xj",
+  "title": "RESEARCH: size_t\u2192word32 silent truncation in flash_sign/verify/decrypt",
+  "description": "src/wp11_backend_usb_flash.c: wc_RsaSSL_Sign, wc_RsaPrivateDecrypt, wc_RsaSSL_Verify all receive size_t lengths cast to word32 (uint32_t). On 64-bit platforms where size_t=64bit and word32=32bit, a buffer >4GB would silently truncate. RSA buffers are never 4GB in practice. However: wc_RsaSSL_Verify writes up to keysize bytes into the 512-byte stack buffer 'out'. Research: verify wolfCrypt's wc_RsaSSL_Verify internal behavior \u2014 does it check that the output fits in outlen BEFORE writing, or does it compute the output size from the key and write regardless? If it writes key_size bytes unconditionally, a 4096-bit key (512 bytes) will exactly fill the 512-byte buffer but a 4097-bit hypothetical key would overflow. Add inline comment at the stack buffer documenting the assumption: RSA-4096 max = 512 bytes. Reject keys larger than 4096 bits in wp11_keystore_create or document the limitation.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:03:33Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T05:18:30Z"
+}

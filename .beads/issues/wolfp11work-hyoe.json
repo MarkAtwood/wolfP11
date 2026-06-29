@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-hyoe",
+  "title": "CCID: document 261-byte short-APDU limit as hard architectural constraint",
+  "description": "src/wp11_ccid.c enforces a 261-byte cmdlen guard and uses 522-byte frame buffers. If extended-length APDUs are ever added, libusb will silently truncate at 522 bytes with no error -- the CCID response header stays valid but the data payload is clipped. This constraint must be documented in CLAUDE.md and in a comment at the cmdlen guard so contributors know that extending APDU support requires enlarging both buffers and the guard.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:48Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T01:22:47Z"
+}

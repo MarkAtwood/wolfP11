@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-13f",
+  "title": "fix: Init*Active flags not cleared on error in C_SignInit/VerifyInit/DecryptInit",
+  "description": "In wp11_pkcs11.c, C_SignInit sets s->sign_active=1 and then falls through to cleanup on validation failure without clearing it. Same pattern in C_VerifyInit (verify_active) and C_DecryptInit (decrypt_active). This leaves the session in a corrupted active-operation state, causing subsequent C_Sign/C_Verify/C_Decrypt to execute with an invalid key or mechanism handle.\n\nTrigger: Call C_SignInit with a null key handle or invalid mechanism on a logged-in session.\nBad behavior: Subsequent C_Sign finds sign_active=1 and proceeds with stale/invalid key, producing undefined behavior or incorrect cryptographic output.\n\nFix: Clear *_active = 0 on all error-goto paths in each of the three Init functions, or move the *_active=1 assignment after all validation checks pass.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:13:48Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-08T23:11:38Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-3i67",
+  "title": "Research: wp11_ks_sign/decrypt return generic -1 for all errors",
+  "description": "wp11_ks_sign and wp11_ks_decrypt in wp11_backend_keystore.c return -1 for ALL error conditions, including buffer-too-small. The WP11_BACKEND_ERR_* codes defined in wp11_backend.h include distinct values for different failure modes, but none of these are returned by the keystore backend \u2014 it just returns -1 (WP11_BACKEND_ERR_GENERAL). Investigate: (1) Are there callers outside wp11_pkcs11.c that rely on distinct error codes from these functions? (2) Does C_Sign in wp11_pkcs11.c fully gate buffer size before calling the backend (via sig_len_max), making the missing WP11_BACKEND_ERR_BUFFER_SMALL irrelevant? (3) Is C_Decrypt similarly protected? If the C_* layer always validates size first, the generic -1 is acceptable but should be documented. If there is any path where a buffer-too-small reaches the backend, we need a distinct error code and proper CKR_BUFFER_TOO_SMALL mapping.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T21:48:42Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-09T22:26:39Z"
+}

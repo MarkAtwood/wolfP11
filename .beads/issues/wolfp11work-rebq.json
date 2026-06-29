@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-rebq",
+  "title": "Test wp11_token_db_lookup_unknown() coverage gap",
+  "description": "wp11_token_db_lookup_unknown() is declared public API (wolfp11/wp11_token_db.h:90-94) and implemented (src/wp11_token_db.c:140-143) but has zero test coverage. No test in wp11_test_token_db.c ever calls it. The function returns a statically-allocated fallback descriptor with proto=WP11_PROTO_PIV, quirks=WP11_QUIRK_SHORT_APDU, algos=RSA2048|EC_P256, name='Generic PIV Token'. Tests needed: non-NULL return, stable pointer identity, correct proto/quirks/algos/name fields.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T19:51:56Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T20:08:43Z"
+}

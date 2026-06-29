@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-980h",
+  "title": "Verify C_SignInit returns CKR_OPERATION_ACTIVE before mechanism check",
+  "description": "test/wp11_test_pkcs11.c was updated so test_init_error_path_active_flag and test_sign_init_active_cleared_on_error now expect CKR_OPERATION_ACTIVE on double-SignInit (correct per PKCS#11 2.40 spec sec.5.3.2), and CKR_OK on the following C_Sign. The old tests expected CKR_MECHANISM_INVALID then CKR_OPERATION_NOT_INITIALIZED. Verify that the C_SignInit implementation in src/wp11_pkcs11.c actually checks sign_active BEFORE it validates the mechanism argument. If the implementation still validates mechanism first and returns CKR_MECHANISM_INVALID, the tests are wrong (they pass because they match wrong behavior) and a real PKCS#11 client will fail with spec-compliant double-init handling.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T02:25:18Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T02:26:34Z"
+}

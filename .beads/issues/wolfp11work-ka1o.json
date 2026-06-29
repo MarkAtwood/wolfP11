@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-ka1o",
+  "title": "bug: CBOR array-skip accumulator overflow bypasses bounds check",
+  "description": "RECLASSIFIED from P0 bug: the accumulator overflow does not occur in current code. Each successful cbor_skip call returns n where cur+n<=buflen (the recursive call can only succeed if data fits in [cur,buflen)), so cur is bounded by buflen<=MAX_CT_LEN=524288 throughout. The 'if (cur < pos)' check is dead code (cur is monotonically increasing) and misleadingly implies overflow risk. This is now tracked as a dead-code cleanup in wolfP11-g750. This bead is superseded by wolfP11-g750; keeping for audit trail.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:49:50Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-10T23:10:33Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-g750",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-10T16:10:32Z"
+    }
+  ]
+}

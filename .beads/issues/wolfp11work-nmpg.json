@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-nmpg",
+  "title": "g_hotplug_dropped overflow path not exercised by any test",
+  "description": "src/wp11_pkcs11.c: g_hotplug_dropped is incremented when the 64-entry hotplug ring buffer is full, and wp11_test_hotplug_dropped() test hook exists to read the counter. But no test in test/wp11_test_pkcs11.c calls wp11_test_hotplug_dropped() or exercises the queue-full path. The broadcast-on-overflow fix (wolfP11-t246) is therefore untested. Add a test: inject 65+ events rapidly without draining, verify g_hotplug_dropped > 0, verify a blocked C_WaitForSlotEvent call returns after the broadcast. Guard with WOLFP11_CFG_TEST.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T02:25:35Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T03:15:20Z"
+}

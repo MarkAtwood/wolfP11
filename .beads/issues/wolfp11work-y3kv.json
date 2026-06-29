@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-y3kv",
+  "title": "bug: keystore ECDSA sign unguarded size_t\u2192word32 cast",
+  "description": "In wp11_backend_keystore.c:166 and :180, both wc_Sha256Update and wc_ecc_sign_hash receive (word32)inlen without a prior UINT32_MAX guard. If a caller supplies inlen>UINT32_MAX the cast silently truncates; ECDSA_SHA256 hashes fewer bytes than intended (wrong hash), plain ECDSA signs the truncated hash directly. Both are silent cryptographic failures. The soft backend (wp11_backend_soft.c:390) does this correctly. Fix: add guard before each cast.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:49:38Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-10T23:49:39Z"
+}

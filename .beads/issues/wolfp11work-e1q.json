@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-e1q",
+  "title": "CLEANUP: replace WP11_PROTO_PIV placeholder for flash slots with WP11_PROTO_FLASH",
+  "description": "src/wp11_pkcs11.c line ~388: flash slots have proto set to WP11_PROTO_PIV with a comment 'placeholder; flash uses keystore protocol'. Any future code that dispatches on slot->proto will incorrectly handle flash slots as PIV tokens. Fix: add WP11_PROTO_FLASH (or WP11_PROTO_KEYSTORE) to the wp11_proto_t enum in the appropriate header. Use it for flash slots. Remove the misleading placeholder comment and replace with a doc comment explaining that flash slots have no APDU protocol \u2014 they use the keystore path in C_Login/C_Sign/C_Verify/C_Decrypt instead of the CCID dispatch.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:03:55Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T05:18:31Z"
+}

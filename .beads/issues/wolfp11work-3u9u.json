@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-3u9u",
+  "title": "No C_Encrypt OAEP test for flash/fsdir backend",
+  "description": "test_rsa_oaep_vector_oracle tests C_Decrypt with flash backend keys but not C_Encrypt. The C_Encrypt OAEP non-soft backend fix (wolfp11work-4023) is completely untested. A regression in that path would ship silently. Need: add C_Encrypt call to the flash-backend OAEP test, use C_Encrypt to produce ciphertext then verify with oracle decrypt (wc_RsaPublicDecrypt + OAEP unpad, or python reference vector).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:09:21Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-11T06:17:04Z"
+}

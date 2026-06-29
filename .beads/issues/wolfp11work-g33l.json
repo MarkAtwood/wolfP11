@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-g33l",
+  "title": "bug: ber_len_encode() silently truncates val > 0xFFFF",
+  "description": "ber_len_encode() in wp11_proto_piv.c encodes only one-byte and two-byte BER lengths. If val > 0xFFFF, the two-byte encoding path silently writes buf[1]=(val>>8)&0xFF, buf[2]=val&0xFF -- emitting the low 16 bits only, which is decoded as a completely different (smaller) length. This truncation is silent: the function returns 3 (success) with wrong output. BER three-byte long form (0x83 prefix) is not supported. In practice PIV payloads don't exceed 0xFFFF, but a caller passing a large accumulation could corrupt APDU framing. Fix: return -1 if val > 0xFFFF.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:58:13Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-09T17:38:03Z"
+}

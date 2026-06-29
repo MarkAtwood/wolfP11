@@ -1,0 +1,21 @@
+{
+  "id": "wolfp11work-ecb",
+  "title": "BUG: PIV/OpenPGP TLV parser assumes single-byte BER length encoding",
+  "description": "wp11_piv_sign() and wp11_openpgp response parsers increment i once to skip the length byte after 7C, then look for the inner tag. Real ISO 7816 BER-TLV allows multi-byte lengths (0x81 followed by 1-byte length, 0x82 followed by 2-byte length). If a token responds with a value > 127 bytes in the DAT envelope, the parser misaligns and reads garbage tags. Fix: after finding 7C, decode the BER length properly (handle 0x81 and 0x82 prefix bytes); add comment citing ISO 7816-4 Section 5.2.2. Add WP11_PIV_ERR_ENCODING error code for this case.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:10:58Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-07T22:36:48Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:07Z"
+    }
+  ]
+}

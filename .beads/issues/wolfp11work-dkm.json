@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-dkm",
+  "title": "Research: PIV wrong error code for malloc failure (WP11_PIV_ERR_PARAM)",
+  "description": "In wp11_proto_piv.c lines 639 and 971, when malloc() fails the functions return WP11_PIV_ERR_PARAM. This error code means 'bad argument' to all callers. An OOM failure is reported identically to a programming error, so callers cannot distinguish resource exhaustion from bugs and may retry with identical inputs.\n\nResearch: trace all callers of wp11_piv_get_cert() and wp11_piv_attest() to understand what they do with WP11_PIV_ERR_PARAM. Determine whether adding WP11_PIV_ERR_NOMEM to the error enum is the right fix or if returning WP11_PIV_ERR_TRANSPORT is sufficient. Then fix and add comment.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:11Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T16:07:40Z"
+}

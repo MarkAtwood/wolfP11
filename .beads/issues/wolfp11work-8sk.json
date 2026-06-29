@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-8sk",
+  "title": "MAINT: USB endpoint sentinel 0 is undocumented implicit invariant",
+  "description": "wp11_ccid_open() uses ep_in=0 and ep_out=0 as 'not found' sentinels, then rejects with WP11_CCID_ERR_NOTFOUND if either is 0. USB bulk endpoints always have non-zero addresses (0 is the control endpoint). This assumption is correct but undocumented. Fix: add a comment above the check explaining that CCID bulk endpoints must be non-zero per USB spec, so 0 is a safe sentinel. Alternatively define USB_ENDPOINT_UNSET 0 and USB_CLASS_CCID 0x0B as named constants. Add USB_ENDPOINT_IN_BIT 0x80 constant.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:11:14Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-07T22:22:06Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:08Z"
+    }
+  ]
+}

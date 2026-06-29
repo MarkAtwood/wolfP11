@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4pe",
+  "title": "Keystore plain_len multiply can overflow before malloc on 32-bit",
+  "description": "In wp11_keystore.c ~line 1181: plain_len = 5u + nkeys * (4300u + WP11_KEYSTORE_CERT_MAX + 16u). nkeys is validated against WP11_KEYSTORE_MAX_ENTRIES (64) but the guard is at the top of the function; the multiply itself has no overflow check. Per-entry size is ~8412 bytes; 64 * 8412 = ~538K which is safe on 64-bit, but on 32-bit SIZE_MAX is 4GB and with a large CERT_MAX this can wrap. Even on 64-bit, the validation could be bypassed by a future caller.\n\nFix: add explicit overflow check before the multiply. Add comment explaining the maximum-size calculation.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:31:55Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T16:07:37Z"
+}

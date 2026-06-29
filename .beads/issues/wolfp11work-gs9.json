@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-gs9",
+  "title": "MAINT: add spec citation comment to PIV 7C/82 response parsing",
+  "description": "The BER-TLV parsing block in wp11_piv_sign() (7C container \u2192 82 response tag \u2192 signature bytes) has no comment citing NIST SP 800-73-4. A reader cannot verify correctness without knowing the response format. Fix: add above the parsing block: /* SP 800-73-4 Section 3.2.4, Table 13: GENERAL AUTHENTICATE response is\\n   7C [len] 82 [siglen] [signature bytes] */. This is required for all APDU-level code per the project's test integrity rules (external oracle).",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:12:01Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-07T22:22:05Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:11Z"
+    }
+  ]
+}

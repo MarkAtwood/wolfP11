@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ypb",
+  "title": "DESIGN: PIV cert retrieval limited to 512 bytes; real certs are 1-4KB",
+  "description": "wp11_proto_piv.c:29 (PIV_APDU_MAX_RESP=512) and wp11_ccid.c:251 (frame_in[CCID_HEADER_LEN + 512]): the response buffer chain is capped at 512 bytes end-to-end. Real PIV X.509 certificates are typically 1-4KB. wp11_piv_get_cert will silently fail for any real PIV certificate: the libusb bulk transfer receives at most 522 bytes of the card's response, the CCID header's dwLength field records the full response length, and the check 'frame_in_len < (CCID_HEADER_LEN + resp_dw_length)' fires, returning WP11_CCID_ERR_USB with no indication that the buffer was simply too small. The current 512-byte limit is intentional for the signing scope (GENERAL AUTHENTICATE responses top out at ~270 bytes for RSA-2048) but must be documented as a known limitation of wp11_piv_get_cert and eventually fixed to support TLS client auth flows that need the certificate chain. Fix requires: (1) dynamic or configurable response buffer in the CCID layer; (2) GET RESPONSE chaining for cards that return 61 xx status; (3) extended APDU support (Le > 0). Add a comment to wp11_piv_get_cert explaining the current limitation and the required APDU chaining design to fix it.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:34:28Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T05:59:45Z"
+}

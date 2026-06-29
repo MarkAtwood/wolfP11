@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-oszj",
+  "title": "improvement: add cast-safety helper macro for size_t\u2192word32 downcasts",
+  "description": "Three backends (soft, wolfhsm, keystore) each duplicate the pattern: check size_t against UINT32_MAX, return error, then cast. The soft backend does this consistently; wolfhsm and keystore are missing some checks. Introduce a shared helper or macro (e.g., SAFE_U32(sz, err_label)) in wp11_backend.h or a new wp11_util.h so the invariant is explicit and contributors cannot miss a check. All three backends should be converted to use it. Comment at definition site: 'wolfCrypt APIs use word32 (uint32_t); size_t args from PKCS11 callers can be 64-bit. Every downcast must go through this macro.'",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:11Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-10T23:49:39Z"
+}

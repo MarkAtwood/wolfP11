@@ -1,0 +1,32 @@
+{
+  "id": "wolfp11work-0ld",
+  "title": "ken-3: USB flash backend ops + C_Login/C_Logout keystore integration",
+  "description": "Wire the keystore module into PKCS#11 operations.\n\nChanges:\n- wolfp11/wp11_backend.h: add WP11_BACKEND_USB_FLASH = 3\n- src/wp11_backend_usb_flash.c: sign (RSA PKCS#1 v1.5 + ECDSA P-256), verify, decrypt (RSA OAEP) \u2014 dispatching into decrypted wp11_key_entry_t from keystore\n- src/wp11_pkcs11.c: flash slots store wp11_keystore_t* in slot priv pointer; C_Login calls wp11_keystore_load(path, pin); C_Logout/slot_remove_flash calls wp11_keystore_free (zeroizes)",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T23:58:58Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T00:23:48Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-dmq",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:02Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-ken",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:03Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-x3t",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:02Z"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-61l",
+  "title": "fix: unimplemented mechanisms return CKR_FUNCTION_NOT_SUPPORTED not CKR_MECHANISM_INVALID",
+  "description": "pkcs11test Digests/DigestTest.DigestInitInvalid confirms: C_DigestInit with an unknown mechanism should return CKR_MECHANISM_INVALID (0x70) but wolfP11 returns CKR_FUNCTION_NOT_SUPPORTED (0x54).\n\nPKCS#11 2.40: the distinction matters \u2014 CKR_FUNCTION_NOT_SUPPORTED means the C_Digest* family is entirely absent. CKR_MECHANISM_INVALID means the function exists but the requested mechanism is not supported. Applications use this distinction to probe capabilities.\n\nThis affects C_DigestInit, C_EncryptInit, C_DecryptInit, C_SignInit, C_VerifyInit when called with a mechanism that wolfP11 does not support. The correct return code depends on whether the function category is supported at all vs. just the specific mechanism.\n\nFix: For functions that ARE implemented (C_SignInit, C_VerifyInit, C_DecryptInit): return CKR_MECHANISM_INVALID for unknown mechanisms. For functions NOT implemented at all (C_DigestInit, C_EncryptInit): it is acceptable to return CKR_FUNCTION_NOT_SUPPORTED, but the initialized check (wolfP11-b57) must come first.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:39:47Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-08T23:54:20Z"
+}

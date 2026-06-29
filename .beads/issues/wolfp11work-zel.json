@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-zel",
+  "title": "research: wolfHSM backend does not retry on WH_ERROR_NOTREADY",
+  "description": "wolfHSM transport functions return WH_ERROR_NOTREADY (-2001) to mean 'retry \u2014 temporary condition'. wh_Client_Echo in the wolfHSM source uses an explicit do-while retry loop on NOTREADY (wh_client.c:560-565). wolfP11's wp11_backend_wolfhsm.c likely calls wh_Client_* once and maps any non-zero return to -1.\n\nIf the transport returns NOTREADY on a single call, wolfP11 will fail the sign/verify/decrypt operation permanently for that session, even though the correct behavior is to retry until the transport is ready or a timeout occurs.\n\nResearch needed: audit every wh_Client_* call in wp11_backend_wolfhsm.c to confirm whether NOTREADY is retried or propagated. If propagated, decide: (a) retry inside the backend with a bounded loop and a timeout, (b) return a wolfP11 error that the PKCS#11 layer can translate to CKR_DEVICE_BUSY with retry semantics, or (c) document that the caller must retry the PKCS#11 operation.\n\nThis is separate from wolfP11-0x1 (which is about error code mapping) \u2014 this is about retry policy.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:46:00Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:18:38Z"
+}

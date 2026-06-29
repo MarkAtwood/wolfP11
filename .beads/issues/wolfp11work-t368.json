@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-t368",
+  "title": "wolfHSM double-eviction on C_GenerateKeyPair then C_DestroyObject",
+  "description": "C_GenerateKeyPair produces two wp11_wolfhsm_key_priv_t structs (pub + priv) that share the same key_id and both have generated_here=1. Destroying both objects calls hsm_free_key_priv twice, which calls wh_Client_KeyEvict twice on the same key_id. The second evict is semantically wrong (key already evicted) and may produce an error that is silently ignored. Fix: only one side (priv) should own the eviction.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:54:26Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-11T06:57:41Z"
+}

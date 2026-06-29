@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-snp7",
+  "title": "bug: wolfHSM PKCS#1 pad integer underflow -> stack overflow",
+  "description": "pkcs1_v15_pad_sign() in wp11_backend_wolfhsm.c checks key_size == 0 and key_size > HSM_RSA_MAX_BYTES but not key_size < 11. If key_size is in [1,10], the subtraction key_size - 11u underflows to a huge size_t, passing the length check. Then ps_len = key_size - in_len - 3u also underflows, and the subsequent memset(out+2, 0xFF, ps_len) writes far beyond the 512-byte padded[] stack buffer. Trigger: provision a key with key_size < 11 (misprovisioned or malicious), then call C_Sign.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:57:47Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-09T17:27:56Z"
+}

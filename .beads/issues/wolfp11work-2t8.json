@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-2t8",
+  "title": "feat: expose all four PIV key slots (9A/9C/9D/9E)",
+  "description": "YubiKey 5 and most PIV tokens have four private key slots: 9A (authentication), 9C (digital signature), 9D (key management), 9E (card authentication). wolfP11 currently exposes only one key object per PIV token. Enterprise deployments routinely put different keys in different slots for different operations. This epic enumerates all populated PIV slots at C_Login time and presents each as a separate CKO_PRIVATE_KEY with slot-specific labels and IDs, plus a CKO_CERTIFICATE for each slot that carries one.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "epic",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T17:01:21Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T19:49:02Z"
+}

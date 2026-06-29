@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-fel",
+  "title": "Research: BER-TLV zero-length field returns wrong error code",
+  "description": "In wp11_proto_piv.c, the BER-TLV decoder accepts length=0. Downstream code in the signature parsing (around line 529) checks 'i >= container_end' immediately when container_len=0, which makes i==container_end true at entry. This returns WP11_PIV_ERR_SW instead of WP11_PIV_ERR_ENCODING, misidentifying a malformed response as a status-word error.\n\nResearch: find all call sites that parse BER-TLV responses and determine if any can receive a real zero-length container from a valid token. If not, add an explicit rejection of zero-length containers at the decoder level with WP11_PIV_ERR_ENCODING and a comment explaining the choice.",
+  "status": "closed",
+  "priority": 4,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:58Z",
+  "updated_at": "2026-05-01T04:55:10Z",
+  "closed_at": "2026-04-09T16:07:43Z"
+}

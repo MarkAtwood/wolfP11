@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-tvk4",
+  "title": "RSA-PSS C_Sign/C_Verify missing WP11_FITS_U32 guards",
+  "description": "The RSA-PSS bypass path in C_Sign (direct call to wp11_soft_key_rsa_pss_sign) and C_Verify casts CK_ULONG ulDataLen and ulSignatureLen to word32 without WP11_FITS_U32 guards. The AES-GCM path has an explicit UINT32_MAX guard. On 64-bit hosts a caller can pass >4GB buffers; silent truncation corrupts the hash computation.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:54:20Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T06:57:39Z"
+}

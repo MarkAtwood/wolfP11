@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-ww0b",
+  "title": "fix: make cbor_skip line 410 consistent with lines 301/339 bounds form",
+  "description": "cbor_skip line 410 uses: val > (uint64_t)(buflen - pos - (size_t)head). This chained subtraction is safe only because cbor_read_head guarantees pos+head<=buflen, but that invariant is not locally visible. Lines 301 and 339 use the safer form: (size_t)head + (size_t)slen > buflen - pos, which requires only pos < buflen (the single-level invariant from cbor_read_head success). Change line 410 to match: if ((size_t)head + (size_t)val > buflen - pos). Add a comment: 'Same bounds form as cbor_read_text/cbor_read_bytes_alloc: requires only pos < buflen, not the stronger pos+head<=buflen.'",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:10:03Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-10T23:59:20Z"
+}

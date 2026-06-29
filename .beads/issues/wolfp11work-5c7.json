@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-5c7",
+  "title": "fix: test_soft_generate_keypair and persistent_roundtrip use code as own oracle",
+  "description": "In test/wp11_test_pkcs11.c, two tests violate the independent-oracle rule:\n\n1. test_soft_generate_keypair_basic (~line 2256-2268): Signs with C_Sign, only checks that signature length is plausible (>0, <=72). Does not verify the signature is cryptographically valid.\n\n2. test_soft_persistent_roundtrip (~line 2372-2384): Reloads a persisted key, signs with C_Sign, only checks CKR_OK and plausible length.\n\nA keystore corruption bug or signing-path bug that produces a wrong-length-but-valid-looking signature would pass both tests undetected.\n\nFix: After C_Sign, export the public key via wp11_test_soft_export_pub_x963, then verify the signature using wc_ecc_verify_hash (independent wolfCrypt code path). This turns a length check into a true cryptographic oracle.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:55Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:00:35Z"
+}

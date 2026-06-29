@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-y2f",
+  "title": "CLEANUP: false comment claiming TEST_HASH is SHA-256 of a specific string",
+  "description": "test/wp11_test_keystore.c line ~376 comment: '/* P-256 SHA-256 hash of \"wolfP11 test vector 1\" */'. The bytes in TEST_HASH are not the SHA-256 of that string. The hash value is irrelevant to the test (it only needs to be 32 bytes to be a plausible ECDSA input) but the false comment violates test hygiene. A reviewer may waste time verifying the claim. Fix: replace the comment with '/* Fixed 32-byte test digest \u2014 value is arbitrary; test is independent of the preimage. */' Match the phrasing used in wp11_test_pkcs11.c line ~1078 which correctly describes its constant.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:04:26Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T05:24:08Z"
+}

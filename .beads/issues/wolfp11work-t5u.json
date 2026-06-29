@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-t5u",
+  "title": "C_GenerateKeyPair requires login for session objects",
+  "description": "C_GenerateKeyPair returns CKR_USER_NOT_LOGGED_IN for session objects (CKA_TOKEN=false, CKA_PRIVATE=false) when the user is not logged in. Per PKCS#11 spec, session objects with CKA_PRIVATE=false do not require login. SoftHSM2 correctly allows key generation without login for these objects.\n\nRoot cause: wp11_pkcs11.c C_GenerateKeyPair line 3869 unconditionally checks !s->logged_in before checking whether the operation needs login (i.e., whether CKA_PRIVATE=true and/or CKA_TOKEN=true).\n\nImpact: pkcs11test Signatures/SignTest.* (18 failures), KeyPairTest.EncryptDecrypt, ReadOnlySessionTest.CreateKeyPairObjects, ReadOnlySessionTest.GenerateKeyInvalid, ReadWriteSessionTest.AsymmetricTokenKeyPair fail.\n\nSoftHSM2 reference: passes all 18 Signatures/SignTest.* tests.\n\nFix: only enforce login in C_GenerateKeyPair when both CKA_TOKEN=true and CKA_PRIVATE=true in the key templates (i.e., when writing a private key to the persistent keystore). Remove the unconditional !s->logged_in check at line 3869.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T00:40:15Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T00:54:22Z"
+}

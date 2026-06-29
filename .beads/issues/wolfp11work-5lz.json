@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-5lz",
+  "title": "fix: C_SignInit/VerifyInit/DecryptInit do not validate pMechanism->pParameter for future parameterized mechanisms",
+  "description": "src/wp11_pkcs11.c: C_SignInit, C_VerifyInit, and C_DecryptInit check pMechanism != NULL but do not validate pMechanism->pParameter or pMechanism->ulParameterLen. Current mechanisms (CKM_RSA_PKCS, CKM_ECDSA, CKM_ECDSA_SHA256) happen not to need parameters, so this is latent.\n\nRisk: when PSS (CKM_RSA_PKCS_PSS), OAEP (CKM_RSA_PKCS_OAEP), or SHA-with-RSA mechanisms are added, the code that reads pParameter will dereference it without a NULL check. This is a pattern that causes real-world CVEs in PKCS#11 implementations.\n\nPreemptive fix:\n1. Add a parameter-validation helper: validate_mechanism_params(CK_MECHANISM_PTR mech) that checks pParameter==NULL iff ulParameterLen==0 (spec \u00a711.1: if no parameter, pParameter must be NULL and ulParameterLen must be 0)\n2. Call it from C_SignInit, C_VerifyInit, C_DecryptInit before storing the mechanism\n3. For current mechanisms: if ulParameterLen != 0, return CKR_MECHANISM_PARAM_INVALID\n4. When parameterized mechanisms are added, extend the helper to validate the specific parameter struct size and content\n5. Add comment: 'Validate pParameter before any mechanism-specific struct cast. NULL with non-zero ulParameterLen or non-NULL with zero ulParameterLen are both invalid per PKCS#11 \u00a711.1.'",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:07:29Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-08T23:55:47Z"
+}

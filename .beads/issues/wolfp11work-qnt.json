@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-qnt",
+  "title": "test: concurrent C_Initialize/C_Finalize vs. in-flight operations",
+  "description": "C_Finalize while another thread is mid-operation is the most dangerous race in any PKCS#11 library. wolfP11 uses g_initialized + g_lock for sequencing but this has not been tested.\n\nWrite tests in test/wp11_test_pkcs11_threads.c:\n\nTest 1 \u2014 C_Finalize races C_Sign:\n- Thread A: tight loop C_SignInit \u2192 C_Sign (1000 iterations)\n- Thread B: after a random delay (1-10ms), calls C_Finalize\n- Success criterion: C_Finalize returns CKR_OK; Thread A gets either CKR_OK or CKR_CRYPTOKI_NOT_INITIALIZED \u2014 never a crash or memory corruption\n- Run with AddressSanitizer to catch use-after-free in freed session/key structs\n\nTest 2 \u2014 double C_Initialize from two threads:\n- Thread A and Thread B both call C_Initialize simultaneously\n- Success criterion: exactly one returns CKR_OK, the other returns CKR_CRYPTOKI_ALREADY_INITIALIZED \u2014 no crash, no double-init of wolfCrypt RNG\n\nTest 3 \u2014 C_Finalize races C_OpenSession:\n- Thread A: tight loop C_OpenSession \u2192 C_CloseSession\n- Thread B: calls C_Finalize mid-loop\n- Success criterion: no session handles left dangling, no crash\n\nTest 4 \u2014 piv_inject_login_impl race (wolfP11-v49):\n- Thread A: calls C_Finalize\n- Thread B: calls wp11_test_inject_piv_login concurrently\n- Success criterion: no TOCTOU crash\n- This specifically validates the fix for wolfP11-v49\n\nCompile with -fsanitize=thread,address for all thread tests.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:56:58Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:49:01Z"
+}

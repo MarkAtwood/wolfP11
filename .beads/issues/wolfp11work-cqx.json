@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-cqx",
+  "title": "is_flash_key call-sites list will drift as new key-free paths are added",
+  "description": "wp11_key_obj_t in wp11_pkcs11.c carries a comment listing every code path that checks is_flash_key before calling wp11_soft_key_free. Currently: C_Finalize and C_DestroyObject. Any contributor adding a third key-free path who misses this comment gets a double-free or use-after-free on flash key_priv, which points into keystore memory that wp11_keystore_free will also free. This is resolved cleanly by the ops-table refactor (wolfP11-be5): storing const wp11_backend_ops_t * on the key object makes the ownership explicit in structure rather than in a comment. Depends on wolfP11-be5.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T16:07:44Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T16:29:38Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-be5",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T09:07:46Z"
+    }
+  ]
+}

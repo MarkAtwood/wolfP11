@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-jz9",
+  "title": "fix: cmd_list_keys leaks PKCS#11 session on C_FindObjectsInit failure",
+  "description": "In src/cli/wp11_cli.c cmd_list_keys, if C_FindObjectsInit fails (~line 319), the code closes the session via C_CloseSession but never calls C_Finalize. The function then continues to the next slot iteration. C_Finalize is only called at the success/final exit path (~line 408) and one early error path (~line 293).\n\nBad behavior: On a slot where find-objects setup fails, the library remains initialized with open state. If the loop exits without hitting the success path, C_Finalize is never called, leaving the PKCS#11 library in initialized state after the CLI exits.\n\nFix: Restructure cmd_list_keys with a single cleanup label that always calls C_Finalize, or add C_Finalize before each early return.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:03Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:29:31Z"
+}

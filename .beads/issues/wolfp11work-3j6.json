@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-3j6",
+  "title": "RESEARCH: verify OpenPGP resplen<2 underflow \u2014 may be safe",
+  "description": "Reviewer flagged wp11_openpgp_sign/authenticate/get_ard as potentially having an unsigned underflow on resplen-2. Counter-analysis: all three functions check 'if (resplen < 2u) return WP11_OPENPGP_ERR_SW' before doing resplen-2. This means resplen=0 and resplen=1 both return error before the subtraction. Need to read the actual source code and confirm this check fires before any arithmetic. If confirmed safe, add a comment to each function: 'resplen >= 2 guaranteed here; check above prevents underflow.' Close as not-a-bug or fix if the check is actually missing.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:11:15Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-07T22:13:24Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:08Z"
+    }
+  ]
+}

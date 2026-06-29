@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-n1cj",
+  "title": "Ed25519 declarations in wp11_soft_key.h not guarded by HAVE_ED25519",
+  "description": "wp11_soft_key_new_ed25519() and wp11_soft_key_test_export_ed25519_pub() are declared unconditionally in wp11_soft_key.h. wolfCrypt only compiles Ed25519 support when HAVE_ED25519 is defined. The RSA-PSS functions in the same header are correctly guarded with #ifdef WC_RSA_PSS. Without the guard, building against a wolfCrypt without HAVE_ED25519 produces linker errors.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:54:29Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-11T06:57:40Z"
+}

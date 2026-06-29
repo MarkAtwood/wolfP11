@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-jq34",
+  "title": "OAEP backend check too broad: USB keys crash in flash+usb builds",
+  "description": "In builds with WOLFP11_CFG_USB_FLASH_BACKEND or WOLFP11_CFG_FSDIR_BACKEND, the OAEP C_Encrypt and C_Decrypt paths check only 'backend_ops == &wp11_backend_soft_ops' and then in the #ifdef branch assume all other backends have key_priv == wp11_key_entry_t*. This is wrong for USB keys (key_priv = wp11_usb_key_priv_t*) and wolfHSM keys (key_priv = wp11_wolfhsm_key_priv_t*). Casting these as wp11_key_entry_t* reads garbage pointer fields, passes garbage to wp11_soft_key_new_from_der, and causes SIGSEGV. Trigger: C_EncryptInit(OAEP) + C_Encrypt on a USB RSA key in a FSDIR=1 build. C_EncryptInit only checks key_type == CKK_RSA, not the backend type, so USB RSA keys pass through. Fix: narrow the #ifdef branch to explicitly check backend_ops == &wp11_backend_flash_ops || &wp11_backend_fsdir_ops before casting; add else with CKR_MECHANISM_INVALID for USB/wolfHSM.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:09:16Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T06:10:51Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ef7",
+  "title": "test: keystore corruption and partial-write recovery",
+  "description": "The keystore AES-GCM file has never been stress-tested for corruption recovery. A partial write (process killed mid-write, disk full, power loss) will produce a file that passes the file-exists check but fails AES-GCM authentication.\n\nWrite tests in test/wp11_test_keystore.c:\n\nTest 1 \u2014 truncated file:\n- Write a valid keystore, then truncate it to various lengths (0, 1, half, almost-full)\n- Attempt wp11_keystore_load on each truncated file\n- Success criterion: returns WP11_KEYSTORE_ERR_IO or WP11_KEYSTORE_ERR_BAD_PIN (auth fail), never crashes or returns partial key data\n\nTest 2 \u2014 bit-flipped ciphertext:\n- Write a valid keystore, flip single bits at offsets: header, IV, ciphertext body, auth tag\n- Attempt load with correct PIN\n- Success criterion: always returns WP11_KEYSTORE_ERR_BAD_PIN (GCM auth fail), never returns decrypted data\n\nTest 3 \u2014 wrong PIN on valid keystore:\n- Write keystore with PIN 'correct'\n- Load with PIN 'wrong'\n- Success criterion: WP11_KEYSTORE_ERR_BAD_PIN, no key data accessible\n\nTest 4 \u2014 concurrent write + read:\n- Thread A: wp11_keystore_create() (writes new keystore)\n- Thread B: wp11_keystore_load() on the same path simultaneously\n- Success criterion: Thread B gets either a valid keystore or WP11_KEYSTORE_ERR_IO \u2014 never partial/corrupt data\n- This is a TOCTOU test for the file operations\n\nTest 5 \u2014 O_TRUNC race (write-to-existing):\n- Write keystore, then call wp11_keystore_create() again (simulates PIN change)\n- Success criterion: either old or new keystore is coherent; no intermediate state is readable\n\nAll tests must verify that no key material is accessible after a failed load \u2014 check that the out parameter is NULL or zeroed.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:57:34Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:12:06Z"
+}

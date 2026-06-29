@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-r3o0",
+  "title": "DER parse: reject trailing garbage after key decode",
+  "description": "wp11_soft_key_new_from_der passes idx=0 into wc_EccPrivateKeyDecode / wc_RsaPrivateKeyDecode. After a successful decode the parser advances idx to the end of the parsed structure, but the code does not verify that idx == (word32)derlen. A DER buffer with valid key material followed by arbitrary garbage bytes will be accepted silently. This could mask a buffer construction bug in the caller (e.g. an off-by-one that appends a garbage byte). Fix: after each successful decode, add 'if (idx \\!= (word32)derlen) { /* cleanup */ return NULL; }'. Add a test with key DER + one extra trailing byte to confirm rejection.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T15:04:22Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-10T15:09:25Z"
+}

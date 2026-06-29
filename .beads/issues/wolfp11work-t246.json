@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-t246",
+  "title": "Hotplug queue overflow: dropped events are silent",
+  "description": "WP11_HOTPLUG_QUEUE_SIZE is 64 events. Rapid USB hotplug beyond that silently drops events and increments g_hotplug_dropped, which callers cannot observe. A token arrival event lost to overflow means the application never sees the new slot. Options: wake all C_WaitForSlotEvent waiters to re-poll actual slot list on overflow, or expose the dropped counter via a diagnostic slot event type.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:37Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T01:34:32Z"
+}

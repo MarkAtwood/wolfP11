@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-7by",
+  "title": "test: concurrent C_Login/C_Logout session state correctness",
+  "description": "C_Login sets per-slot state (soft_pin, soft_pin_len, logged_in) and per-session state. Concurrent login/logout has not been tested.\n\nWrite tests in test/wp11_test_pkcs11_threads.c:\n\nTest 1 \u2014 concurrent login same slot:\n- 4 threads all call C_Login(CKU_USER, '1234') on different sessions on the same slot simultaneously\n- Success criterion: all return CKR_OK or CKR_USER_ALREADY_LOGGED_IN \u2014 never CKR_FUNCTION_FAILED or a crash\n- soft_pin must be coherent (not half-written) after all threads complete\n\nTest 2 \u2014 login/logout interleave:\n- Thread A: C_Login \u2192 100ms sleep \u2192 C_Logout \u2192 repeat\n- Thread B: C_Login \u2192 check C_Login returns CKR_USER_ALREADY_LOGGED_IN \u2192 repeat\n- Success criterion: soft_pin_len never observed as partially written; mlock/munlock calls balanced\n\nTest 3 \u2014 login then concurrent key generation:\n- C_Login, then 8 threads simultaneously call C_GenerateKeyPair\n- Success criterion: each thread gets a distinct key handle; no key handle returned twice; all keys sign correctly (independent oracle: wc_ecc_verify_hash)\n- Detects: g_keys[] slot allocation races\n\nTest 4 \u2014 wrong PIN under concurrent correct-PIN login:\n- Thread A: C_Login with correct PIN\n- Thread B: simultaneously C_Login with wrong PIN\n- Success criterion: Thread A succeeds, Thread B gets CKR_PIN_INCORRECT; soft_pin contains correct PIN after race\n\nRun with -fsanitize=thread. Check soft_pin buffer alignment and atomicity with helgrind.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:57:07Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:49:00Z"
+}

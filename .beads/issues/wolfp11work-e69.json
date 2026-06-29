@@ -1,0 +1,21 @@
+{
+  "id": "wolfp11work-e69",
+  "title": "wolfHSM C_GenerateKeyPair: generate key on server",
+  "description": "Add a wolfHSM path to C_GenerateKeyPair so callers can generate RSA and EC keys on the server without key material ever leaving it.\n\nWhat needs to be done:\n- In C_GenerateKeyPair, add an elif branch for WP11_PROTO_WOLFHSM (after the PIV block and before the soft-token fallback)\n- For CKM_EC_KEY_PAIR_GEN: call wh_Client_EccMakeExportKey (or equivalent) with the curve OID from the template; server generates the key and returns a whKeyId\n- For CKM_RSA_PKCS_KEY_PAIR_GEN: call the RSA keygen equivalent with modulus size from CKA_MODULUS_BITS; server returns a whKeyId\n- Allocate wp11_wolfhsm_key_priv_t structs for the public and private key objects; both share the same key_id\n- Create g_keys[] entries for both public and private handles\n- Public key: retrieve the public components (modulus+exponent for RSA; uncompressed point for EC) for CKA_MODULUS / CKA_EC_POINT attribute reads\n\nAcceptance criteria:\n- pkcs11-tool --module  --generate-keypair --mechanism EC:prime256v1 --slot N succeeds\n- The generated private key never leaves the server (private key attributes not extractable)\n- C_DestroyObject on either handle frees only the g_keys[] entry; does not delete the server key (server keys are persistent)",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T02:53:04Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T05:13:11Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-s5x",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T19:53:37Z"
+    }
+  ]
+}

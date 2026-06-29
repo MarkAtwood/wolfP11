@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-g466",
+  "title": "soft_sign: unguarded size_t->word32 cast in ECDSA/RSA/EDDSA",
+  "description": "wp11_backend_soft.c soft_sign() casts *siglen directly to word32 for ECDSA, ECDSA_SHA256, RSA_PKCS, and EDDSA paths without a WP11_FITS_U32 guard. The EDDSA and RSA paths have the guard for inlen but not for *siglen. On LP64, a caller passing *siglen > UINT32_MAX causes wolfCrypt to write a signature into a buffer it believes is larger than it is.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:00:44Z",
+  "updated_at": "2026-05-01T04:54:51Z",
+  "closed_at": "2026-04-11T01:06:09Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-bo94",
+  "title": "Soft backend: add CKM_AES_GCM",
+  "description": "wolfCrypt has wc_AesGcmEncrypt and wc_AesGcmDecrypt but wolfP11 does not expose CKM_AES_GCM. Implement AES-GCM encrypt/decrypt in wp11_backend_soft.c (or wp11_pkcs11.c for symmetric), add CKM_AES_GCM to g_mechs[], and handle the IV/tag/AAD parameters passed via CK_GCM_PARAMS.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T20:05:15Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T20:49:12Z"
+}

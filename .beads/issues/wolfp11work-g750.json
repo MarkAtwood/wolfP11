@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-g750",
+  "title": "fix: remove dead overflow checks in cbor_skip array/map loops",
+  "description": "cbor_skip has two dead checks: 'if (cur < pos) return ERR_CBOR' after the array loop (line 428) and the map loop (line 457). cur is initialized to pos+head and increases monotonically each iteration (each cbor_skip call succeeds only if data fits in [cur,buflen)), so cur can never be less than pos. The checks are unreachable and mislead future readers into thinking there is an overflow risk at that point. Remove both checks and replace with a comment: 'cur is monotonically increasing and bounded by buflen; no overflow is possible here given cbor_skip return invariant cur+n<=buflen.'",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:10:08Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T23:59:20Z"
+}

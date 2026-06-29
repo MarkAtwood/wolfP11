@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-8s1",
+  "title": "C_CreateObject for data objects not supported",
+  "description": "wolfP11 does not implement C_CreateObject for CKO_DATA (data objects). pkcs11test's DataObjectTest.* tests create data objects, find them, query attributes, and destroy them.\n\nImpact (7 pkcs11test failures):\n- DataObjectTest.CopyDestroyObjectInvalid\n- DataObjectTest.FindNoObject\n- DataObjectTest.FindObject\n- DataObjectTest.FindObjectInvalid\n- DataObjectTest.GetMultipleAttributes\n- DataObjectTest.GetMultipleAttributesInvalid\n- DataObjectTest.GetSetAttributeInvalid\n\nSoftHSM2 reference: SoftHSM2 passes all DataObjectTest.* tests.\n\nImplementation note: DataObjectTest uses read-write sessions and C_CreateObject(CKO_DATA,...) to create in-memory data objects. These do not need to be stored in the keystore for session objects (CKA_TOKEN=false). wolfP11's object storage can be extended to support CKO_DATA session objects.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T00:40:35Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T01:13:05Z"
+}

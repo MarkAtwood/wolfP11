@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-i8d2",
+  "title": "Hotplug overflow test MAX_SLOTS assumption",
+  "description": "test_hotplug_queue_overflow() in wp11_test_pkcs11.c injects 64 events assuming the slot table has at least 64 free slots. If WP11_MAX_SLOTS is less than 64 or slots fill before 63 events, wp11_test_inject_flash_event may silently no-op and the dropped==0 assertion passes spuriously. Need: static_assert or runtime check that MAX_SLOTS >= 64 before the loop, or restructure the test to use a single reused path that does not consume new slots.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T05:53:25Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T06:00:06Z"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "wolfp11work-0ddw",
+  "title": "risk: BER-TLV parsing duplicated 6x without shared abstraction",
+  "description": "The pattern (validate tag, decode length, check bounds, extract data) appears in wp11_piv_select(), wp11_piv_sign(), wp11_piv_get_cert(), wp11_piv_generate_key(), wp11_piv_ecdh(), and wp11_proto_openpgp.c. Each instance has slightly different bound guards (some check pos+1 <= end, some check i >= end first). This means a bounds-check fix applied to one copy must be manually applied to the other five. Create a shared static helper tlv_next(buf, pos, maxpos, expected_tag, out_len) and migrate all six sites.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:59:15Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T19:25:40Z",
+  "notes": "Research complete (see context). The 6 parsing sites have significant differences: mixed pos/i variables, different bounds-check operators, one site handles 2-byte tags (0x7F49 in piv_generate_key), two sites use nested container_end boundaries (piv_sign, piv_ecdh), one site uses a scanning while-loop with break (piv_select) while others use sequential return-on-error. A tlv_next() helper that handles all these cases without being overly complex needs careful API design. Recommend: design the helper API and write a test harness for the unified parsing path before refactoring the 6 sites. This is a non-trivial security-critical refactor requiring human approval per CLAUDE.md."
+}

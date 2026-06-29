@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-rrn",
+  "title": "fs-dir: header and settings",
+  "description": "Add wolfp11/wp11_backend_fs_dir.h (public API: init/finalize/ops struct) and wolfp11/wp11_settings.h additions: WOLFP11_CFG_FS_DIR_PATH default path (\"/etc/wolfp11/keys\"), compile-time range/sanity checks, and WOLFP11_CFG_FS_DIR_BACKEND guard. No C source yet.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:35:18Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T18:28:55Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-6ci",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:35:37Z"
+    }
+  ]
+}

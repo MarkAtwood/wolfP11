@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-cfj9",
+  "title": "Slot removal race: memset active session during USB hotplug",
+  "description": "slot_remove() wipes all slot sessions with memset(0) immediately. If a thread is mid-operation (e.g., inside a backend sign call) when the USB token is removed, the session struct is zeroed while the operation is still running. The thread then dereferences an invalidated session or backend context. Fix requires an invalidation flag + in-progress reference count rather than an immediate wipe.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:00:56Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:22:45Z"
+}

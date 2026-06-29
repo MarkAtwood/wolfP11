@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-3qf",
+  "title": "BUG: C_Sign(pSignature=NULL) returns 512 regardless of mechanism",
+  "description": "wp11_pkcs11.c:2352-2355: when pSignature == NULL, C_Sign returns *pulSignatureLen = 512 for all mechanisms. PKCS#11 2.40 Section 11.13 requires this to return the exact signature length (or a tight upper bound specific to the mechanism and key). Correct values: CKM_ECDSA with P-256 key: max DER-encoded signature = 72 bytes; CKM_ECDSA with P-384 key: max = 104 bytes; CKM_RSA_PKCS with RSA-2048 key: exactly 256 bytes. Returning 512 is not spec-compliant. Callers that use the returned length to size their output buffer (then report that size to their own callers) will over-report. Some PKCS#11-consuming middleware (e.g., ssh-pkcs11-client) passes the returned length to a network peer; a peer receiving a 512-byte size announcement for an ECDSA signature will reject it. Fix: dispatch on s->sign_mech to return the correct size per mechanism.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:34:19Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T05:53:15Z"
+}

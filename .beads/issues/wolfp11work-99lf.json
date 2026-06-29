@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-99lf",
+  "title": "Test USB flash backend flash_sign/verify/decrypt crypto ops",
+  "description": "src/wp11_backend_usb_flash.c implements flash_sign, flash_verify, and flash_decrypt using wolfCrypt directly (same structure as the FSDIR backend we just tested in wolfP11-kwzw). No test file exists for these operations. Need to add test/wp11_test_backend_usb_flash.c with independent-oracle tests analogous to the FSDIR tests: sign-then-oracle-verify, external-sign-then-verify (positive + negative), ECDSA_SHA256 sign, RSA sign, RSA decrypt. The flash backend reads keys from wp11_keystore_t entries just like FSDIR.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T20:14:43Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T20:32:27Z"
+}

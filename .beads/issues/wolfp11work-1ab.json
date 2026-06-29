@@ -1,0 +1,26 @@
+{
+  "id": "wolfp11work-1ab",
+  "title": "Implement wp11_backend_fs_dir.c",
+  "description": "New opt-in backend that scans a configured directory for .p11k files and presents each as a PKCS#11 slot. Reuses wp11_keystore.c for AES-GCM load/save. Analogous to wp11_backend_usb_flash.c but without USB hotplug: scan directory at C_Initialize, optionally use inotify to pick up files added/removed at runtime (C_WaitForSlotEvent). New files: src/wp11_backend_fs_dir.c, wolfp11/wp11_backend_fs_dir.h.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "feature",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:28:49Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T16:35:52Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-rrn",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:35:51Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-ynv",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:29:01Z"
+    }
+  ]
+}

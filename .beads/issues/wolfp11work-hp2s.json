@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-hp2s",
+  "title": "WP11_SIG_LEN_FALLBACK: replace magic number 512 with named constant",
+  "description": "C_Sign returns 512 as a conservative signature length when sig_len_max is unknown (WP11_SIG_LEN_UNKNOWN). 512 is correct for RSA-4096 but is a raw magic number with no compile-time constant or explanation. Define WP11_SIG_LEN_FALLBACK in wp11_settings.h or wp11_pkcs11.c and add a comment documenting that it bounds RSA-4096 signatures (4096/8 = 512 bytes).",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:38Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-11T01:34:32Z"
+}

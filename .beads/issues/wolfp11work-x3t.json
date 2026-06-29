@@ -1,0 +1,27 @@
+{
+  "id": "wolfp11work-x3t",
+  "title": "ken-2: inotify USB flash drive detection + slot integration",
+  "description": "Background inotify thread that watches WOLFP11_CFG_USB_FLASH_WATCH_DIR (default: /run/media) for .p11k files appearing/disappearing (USB mount/unmount via udisks2).\n\nChanges:\n- src/wp11_pkcs11.c: add inotify thread (under WOLFP11_CFG_USB_FLASH_BACKEND); add slot_add_flash(path) and slot_remove_flash(path) helpers; integrate thread start/stop into C_Initialize/C_Finalize\n- The inotify thread watches the root watch dir for IN_CREATE|IN_DELETE (subdirectory events from udisks2 mounts), then watches each subdirectory for .p11k files\n\nTwo-level watching: watch /run/media for new subdirs, watch each subdir for .p11k. On .p11k appearance: slot_add_flash(full_path). On .p11k removal or subdir unmount: slot_remove_flash.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T23:58:58Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T00:17:12Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-dmq",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:01Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-ken",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:03Z"
+    }
+  ]
+}

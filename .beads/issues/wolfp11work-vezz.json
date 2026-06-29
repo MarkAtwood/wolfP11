@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-vezz",
+  "title": "improvement: document free_key_priv NULL contract at all call sites",
+  "description": "wp11_backend.h:115-122 -- NULL free_key_priv means the backend owns key memory in bulk; callers must not free individually. This contract is undocumented at call sites in wp11_pkcs11.c. A future contributor adding a new key-free path could double-free or forget to check. Fix: add a comment at every call site: '/* NULL: backend owns memory in bulk, do not free individually -- see wp11_backend.h:115 */' and add an ASSERT(free_key_priv \\!= NULL) if the semantics require it in a given context.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:22Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-11T00:06:42Z"
+}

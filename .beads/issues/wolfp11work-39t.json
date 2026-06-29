@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-39t",
+  "title": "No P-384 ECDH test coverage \u2014 only P-256 tested",
+  "description": "test_soft_derive_ecdh and test_derive_key_soft only exercise P-256 (65-byte public keys, 32-byte shared secret). P-384 (97-byte public keys, 48-byte shared secret) is a supported curve but has no explicit ECDH test. The soft_derive and C_DeriveKey implementations are generic and should handle P-384, but this is unverified. The PIV piv_ecdh function uses the algorithm byte to distinguish P-256 vs P-384; no test exercises the P-384 code path.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:27:59Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T21:39:23Z"
+}

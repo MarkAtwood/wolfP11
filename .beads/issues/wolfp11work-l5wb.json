@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-l5wb",
+  "title": "bug: keystore RSA sign/decrypt unguarded *siglen cast to word32",
+  "description": "In wp11_backend_keystore.c:128, (word32)*siglen is cast without a UINT32_MAX guard and passed directly to wc_RsaSSL_Sign as the output buffer length. If *siglen>UINT32_MAX the truncated value tells wolfCrypt the output buffer is smaller than it is, potentially causing wolfCrypt to overwrite past the declared limit. Same pattern at lines 351-352 for wc_RsaPrivateDecrypt (both ctlen and *ptlen). The soft backend (wp11_backend_soft.c:552) guards these explicitly. Fix: add UINT32_MAX guards before all casts.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:49:42Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-10T23:49:38Z"
+}

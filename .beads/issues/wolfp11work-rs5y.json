@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-rs5y",
+  "title": "bug: snprintf keystore path not checked for truncation",
+  "description": "In wp11_pkcs11.c:2245-2247, the keystore path is constructed with snprintf into a 256-byte buffer using $HOME, but the return value is not checked. If $HOME is >=200 bytes, the constructed path is silently truncated, pointing to the wrong file. An attacker controlling $HOME could redirect keystore load to an unintended path. Fix: check snprintf return value against sizeof(buf) and return an error if truncated.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:49:58Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-10T23:59:20Z"
+}

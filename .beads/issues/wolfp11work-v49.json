@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-v49",
+  "title": "fix: piv_inject_login_impl mutates g_slots/g_keys without g_lock",
+  "description": "In wp11_pkcs11.c (inside #ifdef WOLFP11_CFG_TEST), piv_inject_login_impl and related test helpers mutate g_slots[] and g_keys[] without acquiring g_lock. These are the same globals protected by g_lock in all production code paths.\n\nTrigger: Call wp11_test_inject_piv_login concurrently with C_Sign/C_Verify/C_Finalize in a multithreaded test.\nBad behavior: TOCTOU violation \u2014 between the slot_id bounds check at line ~805 and the field access at line ~806, C_Finalize can clear g_slots[slot_id], causing the subsequent access to read or write stale/freed memory.\n\nFix: Acquire g_lock at the start of piv_inject_login_impl and release it at the end, OR require that callers of the test injection API call C_Initialize first (which initializes g_lock) and hold the lock during injection. Add a comment explaining the locking requirement.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:49Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T00:03:56Z"
+}

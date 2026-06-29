@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-lbs",
+  "title": "Soft key ref_count is not thread-safe (non-atomic increment)",
+  "description": "In wp11_backend_soft.c lines 195-220, wp11_soft_key_ref() and wp11_soft_key_free() increment/decrement key->ref_count with plain integer operations. If two threads hold a reference to the same key object and one calls ref() while the other calls free() concurrently, the read-modify-write on ref_count is a data race. On a decrement to zero, the key is freed; a concurrent ref() may then touch freed memory.\n\nPer PKCS#11 spec, simultaneous calls from different threads on the same session are undefined, but the same key object can appear across sessions. Needs analysis to determine if cross-session sharing is possible before deciding fix vs. documentation. Create research sub-task.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:31:59Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T16:07:38Z"
+}

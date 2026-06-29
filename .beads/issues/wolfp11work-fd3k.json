@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-fd3k",
+  "title": "Test: wolfHSM RSA key + OAEP returns CKR_MECHANISM_INVALID",
+  "description": "In USBFLASH=1+WOLFHSM=1 builds, a wolfHSM RSA key presented to C_Encrypt/C_Decrypt OAEP must return CKR_MECHANISM_INVALID (the else branch in the is_ks check). This combination has no test. Need to add a test in test/wp11_test_backend_wolfhsm.c that: generates or imports a wolfHSM RSA key, calls C_EncryptInit(CKM_RSA_PKCS_OAEP)+C_Encrypt, asserts CKR_MECHANISM_INVALID. Same for C_Decrypt.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:22:06Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-11T06:43:47Z"
+}

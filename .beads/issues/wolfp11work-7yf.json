@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-7yf",
+  "title": "RESEARCH: g_flash_thread_running data race \u2014 C11 UB, verify volatile fix",
+  "description": "g_flash_thread_running and g_event_thread_running (src/wp11_pkcs11.c lines ~220, ~201) are plain int, not volatile or _Atomic. Written by the main thread (C_Initialize/C_Finalize) and read by the respective thread in a while() loop with no synchronization. Under the C11 memory model the compiler may legally cache the load in a register for the loop's duration, meaning the thread may never see the 0 written by C_Finalize. In practice the self-pipe wakes the thread and the race has no visible effect on x86, but it is undefined behavior and will be caught by TSAN. Research: run test suite with -fsanitize=thread and confirm/deny TSAN fires. Fix: declare both flags volatile int (fixes UB; pipe remains the actual wakeup). Add inline comment at each declaration: 'volatile: written by main thread, read by event/flash thread without mutex; volatile prevents compiler from caching the load across iterations.'",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:03:18Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-08T05:15:59Z"
+}

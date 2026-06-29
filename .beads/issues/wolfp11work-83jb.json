@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-83jb",
+  "title": "CBOR_SKIP_MAX_DEPTH=4 may reject valid future keystore schema",
+  "description": "src/wp11_keystore.c: CBOR_SKIP_MAX_DEPTH=4. Current schema depth is 2 (array > map > scalar). The limit allows depth 4 for forward-compatible nesting. If a future version introduces a 5-level schema (e.g., array > map > map > array > scalar), cbor_skip() returns WP11_KEYSTORE_ERR_CBOR on the unknown key's value. This is not silent -- the error propagates and the keystore fails to load. But it means a new-format keystore written by a future version is unreadable by this version. This is acceptable behavior for a minor version bump that changes schema depth, but should be explicitly documented. Consider raising to 6 or 8 if schema evolution is expected, and add a comment explaining what a depth-exceeded error means at the call site.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T02:25:30Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T03:15:19Z"
+}

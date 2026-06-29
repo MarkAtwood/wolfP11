@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-oom9",
+  "title": "research: does wolfCrypt zero private key bits on wc_ecc_free / wc_FreeRsaKey",
+  "description": "wp11_backend_soft.c frees soft key structs by calling wc_ecc_free() / wc_FreeRsaKey() / wc_ed25519_free() then free(key). If wolfCrypt does not internally zero the private scalar/exponent on key teardown, those bits remain in freed heap pages until the allocator reuses them -- a potential heap disclosure window. Research: inspect wolfCrypt source for wc_ecc_free and wc_FreeRsaKey to determine whether they zero private key material. If they do not, wp11_soft_key_free() must explicitly zero the relevant fields (key->ecc.k, key->rsa.d, etc.) before calling the wolfCrypt free functions. Check both the wolfCrypt version in ~/wolfssl and the minimum supported version.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:42:39Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T00:02:06Z"
+}

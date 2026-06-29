@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-zuav",
+  "title": "test: OpenPGP SELECT AID failure (0x6A82 file not found)",
+  "description": "wp11_test_openpgp.c tests the success path for SELECT AID. No test injects a 0x6A82 (file not found) response to verify the library returns WP11_OPENPGP_ERR_SW or equivalent rather than proceeding as if the applet is present. This matters for tokens that do not implement the OpenPGP applet -- the library should fail cleanly, not silently operate on a different applet. Add a mock-response unit test.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:44Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-11T00:15:57Z"
+}

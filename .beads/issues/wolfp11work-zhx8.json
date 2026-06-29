@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-zhx8",
+  "title": "Collapse flash_path/fsdir_path and keystore/fsdir_keystore in g_slots; merge slot_add",
+  "description": "g_slots has flash_path[256] and fsdir_path[256] which both store .p11k file paths. Collapse to keystore_path[256] under combined #if defined(USB_FLASH)||defined(FSDIR) guard. Merge keystore and fsdir_keystore pointers into one keystore pointer. Update all 40+ call sites in wp11_pkcs11.c (mechanical rename). Merge slot_add_flash/slot_add_fsdir into slot_add_keystore(path, proto) -- only differs in which field it writes and which proto it sets. Keep soft_pin/soft_pin_len under WOLFP11_CFG_USB_FLASH_BACKEND guard (only used by soft persistent token).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T20:49:49Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-09T21:13:19Z"
+}

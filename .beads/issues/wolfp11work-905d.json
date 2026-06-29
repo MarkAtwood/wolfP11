@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-905d",
+  "title": "piv_sw_to_err doc lists 63 Cx as its caller, but 63 Cx is handled inline",
+  "description": "src/wp11_proto_piv.c: the comment above piv_sw_to_err() says 'Called for any non-9000 SW that is not handled inline (e.g., 63 Cx, 6A 82)'. But SW 63 Cx (wrong PIN, retry counter) IS handled inline in wp11_piv_verify_pin() before piv_sw_to_err() is ever called. The example in the comment is wrong. Similarly SW 61 xx (more data) is handled inline in GET RESPONSE chaining. Fix: remove 63 Cx from the example, replace with an accurate example of a code that truly falls through to piv_sw_to_err (e.g., 68 83 unsupported secure messaging).",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T02:25:13Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T02:28:50Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ikab",
+  "title": "keystore non-atomic write: temp+rename",
+  "description": "wp11_keystore_create opens the final path with O_CREAT|O_TRUNC and writes header, ciphertext, and tag in three separate write_all calls. A process kill between any two writes leaves a partial file at the final path. On next load, the partial file fails the GCM auth tag check, which returns WP11_KEYSTORE_ERR_CRYPTO \u2014 exposed to the caller as a BAD_PIN or generic IO error depending on the code path. The actual cause (truncated file) is indistinguishable from a wrong PIN. Fix: write to a temp file in the same directory, fsync, then rename(2) to atomically replace the destination. Regression: add a test that kills the write mid-stream and verifies load returns ERR_CORRUPT (not ERR_BAD_PIN).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T15:04:00Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-10T15:15:57Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-b9c",
+  "title": "CLEANUP: cbor_write_head -1 return mapped to ERR_NOMEM should be ERR_CBOR",
+  "description": "Throughout encode_cbor_payload (src/wp11_keystore.c), every call to cbor_write_head that returns -1 (buffer too small) is mapped to WP11_KEYSTORE_ERR_NOMEM. Buffer overflow is not a memory allocation failure. The correct code is WP11_KEYSTORE_ERR_CBOR (malformed/unfit CBOR) or a new WP11_KEYSTORE_ERR_OVERFLOW. A caller diagnosing WP11_KEYSTORE_ERR_NOMEM will check malloc/mlock paths and miss that the keystore payload is simply too large for the encode buffer. Fix: change all 'return WP11_KEYSTORE_ERR_NOMEM' in encode_cbor_payload to 'return WP11_KEYSTORE_ERR_CBOR'. Add a comment on the affected returns: 'CBOR encode overflowed the pre-allocated buffer \u2014 should not happen given the buffer sizing in wp11_keystore_create.'",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:04:07Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T05:24:07Z"
+}

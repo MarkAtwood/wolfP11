@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-y0n",
+  "title": "RSA leading 0x00 in wh_Client_RsaFunction output: confirmed not a bug",
+  "description": "Review flagged a potential bug: pkcs1_v15_unpad_verify assumes buf[0]==0x00 after RSA_PUBLIC_DECRYPT, worried wolfCrypt might strip the leading zero. CONFIRMED CORRECT: wc_RsaFunctionSync at rsa.c:2807 calls mp_to_unsigned_bin_len_ct(tmp, out, (int)*outLen) which always writes exactly outLen=keyLen bytes, left-padding with zeros as needed. The PKCS#1 block 00 01 FF...FF 00 msg is returned intact. No fix needed. This bead exists to document the research so future reviewers do not re-investigate.",
+  "status": "closed",
+  "priority": 4,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:28:14Z",
+  "updated_at": "2026-05-01T04:55:10Z",
+  "closed_at": "2026-04-08T21:34:33Z"
+}

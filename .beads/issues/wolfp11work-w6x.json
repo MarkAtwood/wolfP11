@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-w6x",
+  "title": "fix: USB hotplug callback does not validate device descriptor fields before slot_add",
+  "description": "In src/wp11_pkcs11.c, the hotplug callback (~line 650-655) calls libusb_get_device_descriptor() and uses desc.idVendor and desc.idProduct without validating the descriptor struct's own fields (bLength, bDescriptorType).\n\nPer USB spec, a valid device descriptor has: bLength == 18 (sizeof(libusb_device_descriptor)) and bDescriptorType == 0x01 (LIBUSB_DT_DEVICE). A malformed or incomplete descriptor with arbitrary idVendor/idProduct values could in theory match a token_db entry \u2014 though this is low-likelihood on a local USB bus.\n\nMore practically: after the token_db lookup succeeds, the device is added to a slot and a CCID open is attempted. If the device descriptor is malformed (wrong bNumConfigurations, missing bcdUSB field), the CCID open will fail \u2014 but the slot is already allocated and partially initialized.\n\nFix:\n1. After libusb_get_device_descriptor() returns 0, validate: desc.bDescriptorType == LIBUSB_DT_DEVICE (0x01) and desc.bLength == 18\n2. Validate desc.idVendor != 0 (vendor ID 0 is not assigned per USB-IF)\n3. These checks go before the token_db_lookup call\n4. Add comment: 'Validate descriptor type before trusting VID/PID \u2014 malformed descriptors can match arbitrary entries.'\n\nThis closes the gap between 'hotplug fires' and 'slot is trusted'.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:07:20Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-08T23:55:48Z"
+}

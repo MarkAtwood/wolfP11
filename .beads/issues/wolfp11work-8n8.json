@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-8n8",
+  "title": "wolfP11 pre-submission review findings",
+  "description": "All issues surfaced by the INTERNAL-OSS code review. Covers correctness bugs, risk/maintainability problems, patch gaps, test gaps, and elegance issues. Fix all CRITICAL and HIGH before tagging 0.1.0.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "feature",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:10:27Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-07T22:36:57Z"
+}

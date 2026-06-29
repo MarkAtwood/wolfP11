@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-dx0t",
+  "title": "CCID extended-APDU buffer truncation risk",
+  "description": "wp11_ccid_apdu() uses a 522-byte stack frame_in[] buffer and a single libusb_bulk_transfer() call. This is safe because wolfP11 only issues short APDUs with GET RESPONSE chaining, so no individual CCID frame exceeds 268 bytes. However the constraint is undocumented: a contributor adding extended-APDU support would cause silent frame truncation past the sequence-number check. Added comment in wp11_ccid.c lines 271-282 documenting the assumption and what must change if extended APDUs are ever added.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:37:29Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T22:37:38Z"
+}

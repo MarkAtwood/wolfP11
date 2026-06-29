@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6k8",
+  "title": "fix: piv_get_sw has no internal guard against resplen < 2",
+  "description": "piv_get_sw() in src/wp11_proto_piv.c:129-134 accesses resp[resplen-2] and resp[resplen-1] with no internal bounds check. All 9 callers currently pre-check resplen >= 2 before calling \u2014 but this is a silent precondition with no annotation, no assert, and no internal enforcement.\n\nAny future caller that omits the guard (or receives a truncated response from a misbehaving token) will produce a size_t underflow (resplen < 2u \u2192 huge index) and an out-of-bounds read.\n\nFix: Add explicit guard inside piv_get_sw:\n  if (resplen < 2u) { *sw1 = 0; *sw2 = 0; return; }  /* caller must detect SW 0000 as invalid */\nOR change signature to return int and propagate:\n  static int piv_get_sw(...) { if (resplen < 2u) return -1; ... return 0; }\nAdd a comment at the function definition explaining the precondition and why internal checking is needed even though callers also guard.\n\nThis resolves wolfp11work-975.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:00:43Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:55Z"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-jon7",
+  "title": "P-384 sig_len_max 105 vs 104 inconsistency",
+  "description": "PIV hardware slot tables hardcode 105u for P-384 ECDSA max signature length. ks_key_sig_len_max() formula 8+2*key_size returns 104 for P-384. Soft keygen also uses 104. Both are correct upper bounds (tight=104, slack=105). Without a comment, contributors see conflicting numbers and cannot tell which is authoritative. Added comments at ks_key_sig_len_max() explaining the formula and at the hardware slot table explaining the intentional +1 slack.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:37:31Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T22:37:40Z"
+}

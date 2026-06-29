@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-dmq",
+  "title": "ken-1: keystore module \u2014 wp11_keystore.h + wp11_keystore.c + settings/Makefile",
+  "description": "Create the core keystore module: format dispatch, .p11k v1 load/create, mlock/zeroize lifecycle.\n\nNew files:\n- wolfp11/wp11_keystore.h \u2014 wp11_key_entry_t, wp11_keystore_t, error codes, public API\n- src/wp11_keystore.c \u2014 .p11k parser/writer, minimal purpose-built CBOR codec, PBKDF2+AES-256-GCM, mlock\n\nAlso update:\n- wolfp11/wp11_settings.h \u2014 add WOLFP11_CFG_USB_FLASH_BACKEND and WOLFP11_CFG_USB_FLASH_WATCH_DIR\n- Makefile \u2014 USBFLASH=1 opt-in adds -DWOLFP11_CFG_USB_FLASH_BACKEND and src/wp11_keystore.c + src/wp11_backend_usb_flash.c to SRCS\n\nCBOR: write purpose-built minimal codec (encode + decode) for exactly the .p11k payload structure. No external CBOR library \u2014 the structure is fixed and a purpose-built parser is ~300 lines, fully bounded.\n\nSecurity: mlock immediately after decrypt; ForceZero before free; reject PBKDF2 iter < 100000; format dispatch on magic bytes not extension.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T23:58:57Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T00:09:11Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-ken",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:03Z"
+    }
+  ]
+}

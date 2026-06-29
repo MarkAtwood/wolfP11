@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-360",
+  "title": "fix: pthread_mutex_lock/unlock return codes not checked in hotplug paths",
+  "description": "In src/wp11_pkcs11.c, six hotplug-related pthread_mutex_lock and pthread_mutex_unlock calls do not check return codes (~lines 620, 631, 3906, 3912, 3917, 3926). pthread_cond_wait (~line 3919) is also unchecked.\n\nIf pthread_mutex_lock fails (EINVAL \u2014 mutex destroyed, EDEADLK \u2014 deadlock, EAGAIN \u2014 max recursive locks exceeded), the code proceeds without the lock. The hotplug queue (g_hotplug_queue[], g_hotplug_tail, g_hotplug_head) is then accessed without synchronization, producing a data race that TSan would flag.\n\nThis is distinct from the main g_lock paths (which use wc_LockMutex and check return codes). The g_hotplug_mutex paths use bare pthread calls without checking.\n\nFix: Check every pthread_mutex_lock/unlock return code in hotplug paths. On lock failure:\n- hotplug_push_event(): return without pushing (drop the event rather than corrupt the queue)\n- C_WaitForSlotEvent(): return CKR_GENERAL_ERROR\n\nAdd comment: 'pthread_mutex_lock return code must be checked \u2014 proceeding without the lock corrupts the hotplug queue.'",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:06:44Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-08T23:54:20Z"
+}

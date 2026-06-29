@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-w2m",
+  "title": "fix: C_DestroyObject allows cross-slot object destruction",
+  "description": "In wp11_pkcs11.c, C_DestroyObject validates the session handle and the object handle but does NOT verify that the object's slot_id matches the session's slot_id. An object created via a session on slot 0 (soft token) can be destroyed using a session on slot 1 (USB token).\n\nPKCS#11 2.40 \u00a711.10 implies objects are scoped to their token. Cross-slot destruction violates this scope.\n\nTrigger: Open session on slot 0, create object (gets handle H). Open session on slot 1. Call C_DestroyObject(slot1_session, H). Object on slot 0 is destroyed.\n\nFix: In C_DestroyObject, after fetching the object via handle, check: if (obj->slot_id != session_get(hSession)->slot_id) return CKR_OBJECT_HANDLE_INVALID;",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:22Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:02:00Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-3fw3",
+  "title": "Doc: README and PRFAQ contradict on wolfHSM backend status",
+  "description": "README.md lists wolfHSM as a supported backend. PRFAQ.md states 'the wolfHSM backend is planned but not yet implemented in this release.' These are directly contradictory. Additionally, PRFAQ.md Q&A references 'wh_token_db[]' but the actual struct is named 'wp11_token_db[]'. Fix: reconcile wolfHSM status across both documents. Fix the wh_token_db typo in PRFAQ.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T21:49:11Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T22:27:21Z"
+}

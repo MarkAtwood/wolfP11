@@ -1,0 +1,21 @@
+{
+  "id": "wolfp11work-8o2",
+  "title": "test: wolfHSM backend WH_ERROR_NOTREADY retry and error-code mapping",
+  "description": "wolfP11-zel identified that wolfP11 does not retry on WH_ERROR_NOTREADY, and wolfP11-0x1 identified that all wolfHSM errors collapse to -1. Neither has tests.\n\nWrite tests in test/wp11_test_backend_wolfhsm.c using a mock wolfHSM transport:\n\nTest infrastructure: implement a mock whCommClientCb that returns configurable sequences of errors. This allows testing without a real wolfHSM server.\n\nTest 1 \u2014 NOTREADY then OK (retry test):\n- Mock transport: returns WH_ERROR_NOTREADY for first N calls, then WH_ERROR_OK\n- Call wp11_wolfhsm_sign()\n- Success criterion: if retry is implemented, sign succeeds; if not, confirm bug exists and the test documents expected vs. actual behavior\n- This test is the executable specification for wolfP11-zel\n\nTest 2 \u2014 error code mapping:\n- Mock: return WH_ERROR_NOTFOUND from server response \u2192 expect CKR_KEY_HANDLE_INVALID from PKCS#11 layer\n- Mock: return WH_ERROR_USAGE \u2192 expect CKR_ACTION_PROHIBITED\n- Mock: return WH_ERROR_TIMEOUT \u2192 expect CKR_DEVICE_ERROR\n- Mock: return WH_ERROR_ABORTED \u2192 expect CKR_DEVICE_ERROR\n- Mock: return WH_ERROR_NOTIMPL \u2192 expect CKR_MECHANISM_INVALID\n- Each mapping verified against wolfHSM wh_error.h and PKCS#11 2.40 spec table\n\nTest 3 \u2014 wh_Client_Echo health check:\n- If wolfP11 calls wh_Client_Echo at slot init, test that a server that returns ABORTED causes the slot to be marked unavailable immediately\n- Test that a slot marked unavailable returns CKR_TOKEN_NOT_PRESENT, not CKR_DEVICE_ERROR\n\nTest 4 \u2014 fatal after partial operation:\n- Mock: sign request sends OK, response returns WH_ERROR_ABORTED\n- Success criterion: C_Sign returns CKR_DEVICE_ERROR, sign_active is cleared, next C_SignInit can succeed\n\nMock transport implementation tip: implement whTransportClientCb with a test double that reads from a pre-configured error sequence array. This is the same pattern wolfHSM's own test suite uses.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:57:23Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T05:55:22Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-dbd",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T19:53:39Z"
+    }
+  ]
+}

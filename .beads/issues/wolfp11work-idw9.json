@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-idw9",
+  "title": "Bug: soft backend stack key material not wiped",
+  "description": "In wp11_backend_soft.c, two categories of sensitive material are left on the stack without zeroing before return: (1) The 512-byte RSA verify plaintext buffer 'out[512]' used in soft_verify RSA_PKCS path -- decrypted plaintext sits on the stack after the comparison. (2) SHA-256 digest buffers 'uint8_t digest[WC_SHA256_DIGEST_SIZE]' in soft_sign and soft_verify ECDSA paths. These are not wiped before the function returns. Key material on the stack can be recovered from subsequent stack frames or core dumps. Fix: add wp11_zero() calls (already used elsewhere in the codebase) on these stack buffers in all early-return and normal-return paths. Use the volatile-cast pattern already established in wp11_keystore.c to prevent dead-store elimination.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T03:10:00Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-10T03:15:07Z"
+}

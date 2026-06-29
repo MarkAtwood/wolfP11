@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4g2",
+  "title": "fix: CLI oldpin buffer not zeroed on read_pin failure path",
+  "description": "In src/cli/wp11_cli.c ~line 1048-1051, if read_pin() fails (returns < 0), the function prints an error and returns 1 without calling memset(oldpin, 0, sizeof(oldpin)).\n\nThe oldpin buffer contains partial or complete plaintext PIN input from the user. Leaving it unzeroed means the PIN persists in process stack memory until overwritten by subsequent function calls \u2014 potentially readable via core dump, /proc/PID/mem, or a heap/stack scanner.\n\nAll other PIN error paths in the function (line ~1059, 1067, 1072, 1077) correctly zero their PIN buffers before returning.\n\nFix: Add memset(oldpin, 0, sizeof(oldpin)) before the return at line 1051. Consider using explicit_bzero() or wc_MemZero() instead of memset, which the compiler may optimize away.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:06:52Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:11:59Z"
+}

@@ -1,0 +1,21 @@
+{
+  "id": "wolfp11work-ynv",
+  "title": "Design: fs-dir backend config and slot mapping",
+  "description": "Specify the fs-dir backend before writing code. Decisions needed: config macro name (WOLFP11_CFG_FS_DIR_BACKEND), directory config env var or compile-time default, how each .p11k filename maps to a slot index, whether inotify watching is supported (files appearing/disappearing at runtime), PIN handling (same PBKDF2 flow as USB flash), and interaction with the existing slot allocator in wp11_pkcs11.c. Output: written design notes on wolfP11-6ci, no code.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:28:46Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T16:32:26Z",
+  "design": "1. Config: compile-time default WOLFP11_CFG_FS_DIR_PATH (\"/etc/wolfp11/keys\") in wp11_settings.h, overridable at runtime via WOLFP11_FS_DIR_PATH env var. Consistent with WOLFP11_CFG_USB_FLASH_WATCH_DIR pattern. 2. Inotify: yes \u2014 background thread watches the directory for .p11k files appearing/disappearing, fires C_WaitForSlotEvent. Mirrors wp11_backend_usb_flash.c. 3. Slot mapping: filename encodes slot index. Convention: slot-N.p11k where N is the decimal slot number. Files not matching the pattern are ignored. Gaps allowed. Stable across directory changes \u2014 adding slot-5.p11k does not renumber slot-0.",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-6ci",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:29:01Z"
+    }
+  ]
+}

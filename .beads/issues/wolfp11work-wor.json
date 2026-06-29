@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-wor",
+  "title": "hp-1: slot table in pkcs11.c + update all C_* slot functions",
+  "description": "Replace hardcoded slotID==0 checks with a wp11_slot_t g_slots[] table. Slot 0 = soft token (always present). Slots 1..N = USB tokens (dynamically managed by hotplug). Update C_GetSlotList, C_GetSlotInfo, C_GetTokenInfo, C_GetMechanismList, C_GetMechanismInfo, C_OpenSession, C_CloseAllSessions, C_InitToken to use the table.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:58:32Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-07T23:07:26Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-9nd",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:58:38Z"
+    }
+  ]
+}

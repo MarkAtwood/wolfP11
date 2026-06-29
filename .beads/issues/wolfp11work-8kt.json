@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-8kt",
+  "title": "wolfHSM build system does not produce libwolfhsm.so by default",
+  "description": "The Makefile links with -lwolfhsm from -L$(WOLFHSM_DIR)/build, but ~/wolfHSM/Makefile only builds test/benchmark/tools/examples \u2014 no libwolfhsm.so or libwolfhsm.a is produced. A developer who does 'make WOLFHSM=1' will get a link error. The wolfHSM sources must be compiled separately and installed, or the wolfP11 Makefile must compile wolfHSM source files directly. This makes the wolfHSM backend impossible to build without custom steps that are not documented anywhere in the codebase.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:28:20Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T21:55:26Z"
+}

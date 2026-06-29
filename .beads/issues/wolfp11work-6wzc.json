@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6wzc",
+  "title": "research: slot_id staleness after token removal during open session",
+  "description": "wp11_pkcs11.c key objects store a slot_id (line 299-302). If a token is removed and a new one inserted in the same slot while a session is still open, g_keys[idx].slot_id == s->slot_id may match unintended keys. Research: does the C_CloseSession / C_Logout path clear all keys for the slot before allowing a new login? If not, add a generation counter or epoch to session/key handles to invalidate stale references.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:06Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-11T00:03:47Z"
+}

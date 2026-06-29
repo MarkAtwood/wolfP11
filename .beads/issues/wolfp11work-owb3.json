@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-owb3",
+  "title": "Bug: wc_RsaEncryptSize error return not checked",
+  "description": "In wp11_backend_soft.c, wc_RsaEncryptSize() returns -1 on error (invalid key), but the call site casts the return value to word32 without checking for negative. -1 cast to word32 becomes 0xFFFFFFFFu (4 GiB), which is then used as the expected signature length or buffer size, causing incorrect behavior. Fix: check the return value before casting. If negative, return an appropriate error.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T03:10:06Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-10T03:15:16Z"
+}

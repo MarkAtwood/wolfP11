@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4qza",
+  "title": "risk: wolfHSM factory accepts key_size < 11 for RSA",
+  "description": "wp11_wolfhsm_alloc_key_priv() accepts key_size without validating it is >= 11 for RSA keys (minimum for PKCS#1 v1.5: 11 bytes overhead). A misprovisioned key (wrong size recorded locally) passes all validation at creation/login time and only fails at first C_Sign with a memory safety error (see wolfP11-snp7). Add: if key_type==RSA and key_size > 0 and key_size < 11, return NULL with a clear log message. This catches misprovisioning at the point of setup rather than at runtime.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:59:01Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T17:42:47Z"
+}

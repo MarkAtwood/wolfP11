@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-f91",
+  "title": "fix: WP11_QUIRK_SHORT_APDU and WP11_QUIRK_NO_PSS defined but never applied",
+  "description": "wp11_token_db.h defines two quirk flags:\n  WP11_QUIRK_NO_PSS  (0x01): RSA-PSS should be done client-side, not on-token\n  WP11_QUIRK_SHORT_APDU (0x02): token only supports max 255-byte APDU body\n\nBoth flags appear in the token descriptor table but all entries have WP11_QUIRK_NONE. More critically, the PIV protocol code (wp11_proto_piv.c) does not check these flags anywhere \u2014 they are inert dead code.\n\nReal-world impact:\n- Some NitroKey and Feitian tokens do not support extended APDUs (>255 bytes). Sending a 256-byte RSA signature APDU to such a token will return 6700 (wrong length) or be silently truncated by the CCID layer.\n- Some tokens do not implement RSA-PSS natively and need the padding done by the host.\n\nFix:\n1. Wire WP11_QUIRK_SHORT_APDU into wp11_piv_sign and wp11_piv_ecdh: if quirk is set, split any APDU body >255 bytes using command chaining (CLA=0x10 for all but last, CLA=0x00 for last) per ISO 7816-4 \u00a75.1.1.\n2. Wire WP11_QUIRK_NO_PSS into the PKCS#11 signing path: if quirk is set and mechanism is CKM_RSA_PKCS_PSS, apply PSS padding in wolfCrypt and send raw CKM_RSA_X_509 to the token.\n3. Assign correct quirks to known tokens in the database: research which NitroKey/Feitian models need WP11_QUIRK_SHORT_APDU.\n4. Add a comment at each quirk check site explaining what real-world token behavior triggered the flag.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:01:10Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:22:03Z"
+}

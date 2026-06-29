@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-9ew",
+  "title": "BUG: test_keystore_truncated uses wrong magic bytes \u2014 test passes wrong-error",
+  "description": "test/wp11_test_keystore.c lines 76-79 defines P11K_MAGIC_0='p' and P11K_MAGIC_3='k' (lowercase). The actual loader (src/wp11_keystore.c) checks for 'P11K' (uppercase). The truncated test file therefore returns WP11_KEYSTORE_ERR_BAD_MAGIC not WP11_KEYSTORE_ERR_TRUNCATED, and the assertion at line 155 fails. The test is currently reporting a failure with a misleading label \u2014 it appears to test truncation but actually tests nothing useful. Fix: change P11K_MAGIC_0 to 'P' and P11K_MAGIC_3 to 'K'. For a proper truncated-file test the buffer must be >=73 bytes (WP11_P11K_HDR_LEN=57 + WP11_P11K_TAG_LEN=16) with correct magic so the size check passes and a truncated ciphertext is detected. The bad_magic test already uses the 80-byte structure; the truncated test should use a similar 73-byte buffer with valid header but ctlen>0 and no actual ciphertext bytes.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:03:07Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-08T05:15:58Z"
+}

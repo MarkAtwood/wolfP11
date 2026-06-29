@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4023",
+  "title": "C_Encrypt OAEP non-soft backend crash",
+  "description": "C_Encrypt for CKM_RSA_PKCS_OAEP casts key_priv to wp11_soft_key_t* without checking backend type (wp11_pkcs11.c ~line 5528). Flash/fsdir backends store key_priv as wp11_key_entry_t*, so the cast is UB and will crash or corrupt memory. C_Decrypt had the same bug and was fixed this session (detect backend_ops == &wp11_backend_soft_ops; for non-soft backends create a temporary soft key from entry DER bytes, then free it). C_Encrypt needs the same pattern.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T05:53:19Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T05:58:01Z"
+}

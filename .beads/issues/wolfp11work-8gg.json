@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-8gg",
+  "title": "PATCH: wc_curve448_init has no _ex variant \u2014 devId gap undocumented",
+  "description": "The wolfprovider_devid.patch changes wc_InitRng in wp_ecx_kmgmt.c to use devId. But the key init function pointers in the ecx table (wc_curve448_init, wc_ed448_init, wc_curve25519_init, wc_ed25519_init) are called via WP_ECX_INIT function pointer type int(*)(void*). Only wc_curve25519_init_ex, wc_ed25519_init_ex, wc_ed448_init_ex exist; wc_curve448_init_ex does NOT exist in wolfCrypt. The patch does not address key init devId routing for any ecx key, only the RNG. Document this limitation in provider_patch/wolfprovider_devid.patch header comment and in a /* NOTE */ at the ecx table.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:11:32Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-07T22:36:54Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:09Z"
+    }
+  ]
+}

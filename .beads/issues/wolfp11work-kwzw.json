@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-kwzw",
+  "title": "Test FSDIR backend fsdir_sign/verify/decrypt crypto ops",
+  "description": "src/wp11_backend_fsdir.c implements fsdir_sign, fsdir_verify, fsdir_decrypt as real wolfCrypt operations, but they have zero test coverage. wp11_test_fsdir.c only tests slot detection and login/logout with empty keystores. Need a new test file (test/wp11_test_backend_fsdir.c) following the pattern of wp11_test_backend_soft.c: create .p11k keystore with real ECC/RSA key DER, build wp11_key_handle_t with priv=wp11_key_entry_t*, call wp11_backend_fsdir_ops.sign/verify/decrypt directly, verify output with independent wolfCrypt oracle.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T19:52:04Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T20:08:43Z"
+}

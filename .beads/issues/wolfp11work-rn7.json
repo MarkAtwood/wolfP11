@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-rn7",
+  "title": "Epic: wolfHSM backend full PKCS#11 integration",
+  "description": "Wire the wolfHSM crypto dispatch layer (hsm_sign/verify/decrypt/derive \u2014 already implemented in src/wp11_backend_wolfhsm.c) into the wolfP11 PKCS#11 slot/session model so applications can use a wolfHSM server as a PKCS#11 token without code changes.\n\nCurrently the backend is orphaned: the four crypto functions are solid but there is no WP11_PROTO_WOLFHSM slot type, no C_Login path to establish a whClientContext, no slot created at C_Initialize, no key provisioning path, and no tests. Once integrated, wolfP11 should expose a wolfHSM server as one or more PKCS#11 slots, load pre-provisioned server keys at login time, and (optionally) generate or import keys on the server.\n\nScope includes:\n- Slot model (WP11_PROTO_WOLFHSM, wp11_slot_t extension, C_Initialize)\n- Session lifecycle (C_Login connects to server; C_Logout disconnects)\n- Key discovery (enumerate pre-provisioned server keys into g_keys[] at login)\n- C_GenerateKeyPair on server\n- C_ImportKey (DER \u2192 server, get key ID back)\n- Test suite with loopback / SHM transport\n\nOut of scope: wolfHSM server setup and provisioning tools; OpenSSL provider integration; key wrapping (C_WrapKey/C_UnwrapKey).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "epic",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T02:52:17Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T05:25:15Z"
+}

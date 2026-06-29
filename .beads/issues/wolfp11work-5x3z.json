@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-5x3z",
+  "title": "C_Finalize: document why memset(g_slots) before thread join is safe",
+  "description": "In C_Finalize, memset(g_slots, 0, sizeof(g_slots)) happens at line 2411, while pthread_join for USB/flash/fsdir background threads happens later (lines 2445/2467/2492). On first read this looks like a UAF window. It is actually safe because: (1) g_lock is held during the memset so no background thread can be inside the lock-protected g_slots access; (2) g_lock_ready is set to 0 before WP11_UNLOCK(), so any thread that subsequently acquires g_lock will fail WP11_LOCK() and exit without touching g_slots. The pthread_joins then confirm the threads have fully exited before wc_FreeMutex. Fix: add an inline comment at the memset(g_slots) call explaining the invariant, so reviewers do not re-flag this as an ordering bug.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T15:04:39Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-10T15:08:50Z"
+}

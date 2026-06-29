@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ifhp",
+  "title": "Research: slot_remove_keystore missing proto check",
+  "description": "slot_add_keystore checks proto in the re-insertion loop to distinguish flash vs fsdir when a path matches. slot_remove_keystore does NOT check proto \u2014 it removes the first slot whose keystore_path matches, regardless of backend type. Investigate whether this is a latent bug. Paths are unique per backend type by construction (USB flash paths come from sysfs mount points; fsdir paths are user-configured), so a collision is theoretically impossible today. But the asymmetry is a semantic gap: if a future change allows path sharing or if assumptions break, the wrong slot could be removed silently. Decision needed: add proto check for consistency and defensive correctness, or document the invariant explicitly at the call site.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T21:48:32Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-09T22:26:45Z"
+}

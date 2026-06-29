@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4ja",
+  "title": "WOLFHSM=1 build missing required compile flags",
+  "description": "When WOLFHSM=1 is passed to make, the Makefile adds -I$(WOLFHSM_DIR) and -DWOLFP11_CFG_WOLFHSM_BACKEND but is missing flags required for wolfHSM headers to compile: (1) -DWOLFHSM_CFG_ENABLE_CLIENT guards all client API in wh_client_crypto.c \u2014 without it, wh_Client_EccSign etc. are not compiled, link fails with undefined references. (2) -DHAVE_ANONYMOUS_INLINE_AGGREGATES=1 required by wolfSSL, asserted in wh_settings.h:386. (3) -DWOLFHSM_CFG_PORT_GETTIME=<fn> asserted in wh_settings.h:181. The syntax check only passed because these were added manually.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:27:39Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T21:32:24Z"
+}

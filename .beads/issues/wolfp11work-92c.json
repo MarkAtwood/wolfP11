@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-92c",
+  "title": "RESEARCH: wc_RsaSSL_Verify API \u2014 does it write to caller buffer or use internal?",
+  "description": "soft_verify() passes a 512-byte stack buffer to wc_RsaSSL_Verify(). Need to check wolfCrypt source/docs: does wc_RsaSSL_Verify() write the decrypted signature to the output pointer, or does it use an internal buffer and return a pointer into it? If it writes to caller's buffer, a 4096-bit key (512-byte modulus) exactly fills the buffer \u2014 no overflow for RSA-4096 but any larger key would overflow. Check wolfCrypt's wc_RsaSSL_Verify signature and behavior in ~/wolfssl/wolfcrypt/src/rsa.c. Then either confirm safe or fix to use dynamic allocation with key-size-based sizing.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:11:15Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-07T22:13:24Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:08Z"
+    }
+  ]
+}

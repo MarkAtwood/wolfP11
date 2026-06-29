@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-9k4p",
+  "title": "C_DestroyObject: stale session op-state after key deletion",
+  "description": "C_DestroyObject marks a key in_use=0 but does not scan sessions to clear sign_key/decrypt_key/verify_key/encrypt_key references to the deleted handle. C_Logout does this cleanup but C_DestroyObject does not. A session that called C_SignInit before the key was deleted will hold a stale handle; its next C_Sign call will either key_get a now-deleted object or dereference freed memory. PKCS#11 2.40 sec.11.10 requires this cleanup.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:00:54Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-11T01:22:46Z"
+}

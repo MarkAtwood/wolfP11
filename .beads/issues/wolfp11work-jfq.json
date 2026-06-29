@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-jfq",
+  "title": "feat: wolfHSM backend (wp11_backend_wolfhsm.c)",
+  "description": "The wolfHSM backend is the most strategically important planned feature. It routes PKCS#11 sign/verify/decrypt calls through the wolfCrypt WH_DEV_ID device callback to a wolfHSM server, enabling the full chain: application \u2192 wolfP11 PKCS#11 \u2192 wolfCrypt callback \u2192 wolfHSM RPC \u2192 secure core or TEE. Without this, wolfP11 cannot serve the embedded and HSM-backed use cases that are wolfSSL's primary market. This epic implements src/wp11_backend_wolfhsm.c using the wolfHSM client API, following the structure of wp11_backend_usb_flash.c and registering via the wp11_backend_ops_t dispatch table.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "epic",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T17:01:26Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T21:07:30Z"
+}

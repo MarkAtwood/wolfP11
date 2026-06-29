@@ -1,0 +1,27 @@
+{
+  "id": "wolfp11work-4ev",
+  "title": "ken-4: tests for keystore module + hotplug integration",
+  "description": "Test coverage for the USB flash backend.\n\nNew files:\n- test/wp11_test_keystore.c: create .p11k + load round-trip; wrong PIN returns error; wrong magic returns WP11_KEYSTORE_ERR_UNSUPPORTED; truncated file returns error; PBKDF2 iterations < 100000 rejected; correct entry count and labels after load; mlock/munlock lifecycle\n- test/vectors/p11k_framing.json: hand-constructed test vectors using external oracle (Python cryptography library or openssl), NOT generated from code under test\n- test/wp11_test_pkcs11.c: add test for flash slot appearing when keystore file created via wp11_test_inject_flash_path() hook\n\nAll vectors must have an independent source (known PBKDF2 output, known AES-GCM ciphertext).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T23:58:58Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T00:35:26Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-0ld",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:02Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-ken",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T16:59:04Z"
+    }
+  ]
+}

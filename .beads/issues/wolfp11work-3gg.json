@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-3gg",
+  "title": "fix: soft_sign() does not validate sig output pointer for NULL",
+  "description": "In src/wp11_backend_soft.c, soft_sign() validates handle, handle->priv, in, and siglen \u2014 but NOT the sig output buffer pointer. wc_ecc_sign_hash() at line ~189 writes to sig without a prior NULL check.\n\nThe parallel functions soft_verify() and soft_decrypt() both check their output pointers. This is an inconsistency that will cause a null pointer dereference if the PKCS#11 layer passes a NULL sig pointer (which it legitimately does in size-query mode: C_Sign with pSignature==NULL calls the backend with sig==NULL expecting only the length back).\n\nTrigger: C_Sign size-query call (pSignature=NULL) routed to soft backend.\nBad behavior: wc_ecc_sign_hash(in, inlen, NULL, &siglen, ...) \u2192 crash or undefined behavior.\n\nFix: Add at the top of soft_sign():\n  if (sig == NULL) { ... return length-query path ... }\nOr match the other backends: check sig != NULL for the actual signing path, return length estimate for size-query.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:06:20Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:12:41Z"
+}

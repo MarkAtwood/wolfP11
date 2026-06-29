@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-agno",
+  "title": "Test untested keystore error codes BAD_VERSION KDF_WEAK BAD_ITER INVALID_DER",
+  "description": "wolfp11/wp11_keystore.h defines 14 WP11_KEYSTORE_ERR_* codes but only 4 are exercised by test/wp11_test_keystore.c. Four specific triggerable codes are completely untested: WP11_KEYSTORE_ERR_BAD_VERSION (returned when version byte != 0x01), WP11_KEYSTORE_ERR_KDF_WEAK (iterations < 100000), WP11_KEYSTORE_ERR_BAD_ITER (iterations > INT_MAX), WP11_KEYSTORE_ERR_INVALID_DER (bad DER in wp11_keystore_detect_key_type). Each can be triggered by crafting a specific binary input and calling wp11_keystore_load or wp11_keystore_detect_key_type. The oracle is the specific error code returned.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T20:14:49Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T20:35:34Z"
+}

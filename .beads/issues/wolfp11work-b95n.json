@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-b95n",
+  "title": "bug: concurrent keystore test oracle is incomplete",
+  "description": "test_keystore_concurrent_write_read() in wp11_test_keystore.c checks bad_count==0 and writer_result==0 but never asserts that the reader thread made any attempts (ok_count + error_count > 0). If the reader thread is never scheduled, the test passes trivially with all counts at zero. This means thread-safety is not actually exercised by the test. Fix: add check((reader_result.ok_count + reader_result.error_count) > 0, 'concurrent reader executed at least one iteration').",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:58:32Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T17:42:46Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-tu9w",
+  "title": "bug: mech_hmac_output_size()==0 not validated in C_Sign HMAC path",
+  "description": "C_Sign() calls mech_hmac_output_size(s->sign_mech) and stores the result in out_size without checking if it is 0. If s->sign_mech is corrupted or contains an unknown mechanism value (which should have been rejected in C_SignInit but can occur via memory corruption), the size-query returns 0 to the caller. Caller then allocates 0 bytes, calls C_Sign again, and the HMAC write corrupts adjacent memory. Fix: if out_size == 0, clear sign_active and return CKR_MECHANISM_INVALID.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:58:01Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-09T17:38:01Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-gvqd",
+  "title": "fix: add recursion depth limit to cbor_skip",
+  "description": "cbor_skip recurses on ARRAY and MAP with no depth cap. A crafted .p11k file with deeply-nested CBOR (e.g. array-of-arrays-of-arrays) can exhaust the call stack before buffer exhaustion fires: each empty nested level costs only 2 bytes, so a 512 KB buffer allows ~131000 nesting levels. Our schema is array > map > scalar (depth 2); add an int depth parameter, reject at depth > 4 (generous margin for forward-compatible nesting). Update the forward declaration, the two recursive calls, and the two call sites in decode_cbor_payload. Comment at the depth check: 'Schema depth is 2 (array > map > scalar). Cap at 4 to allow forward-compatible nesting while bounding stack use regardless of input.'",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:09:59Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-10T23:59:19Z"
+}

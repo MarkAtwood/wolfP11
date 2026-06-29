@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-043",
+  "title": "Secret key ops: CreateObject, Encrypt, Decrypt, Digest, HMAC",
+  "description": "Implement CKO_SECRET_KEY creation and all symmetric crypto operations needed for Ciphers/SecretKeyTest, HmacTest, and DigestTest suites. Currently 132 tests fail. This covers: C_CreateObject(CKO_SECRET_KEY), C_EncryptInit/Encrypt/Update/Final, C_DecryptInit/Decrypt/Update/Final for AES-ECB/CBC and DES-ECB/CBC and 3DES-ECB/CBC, C_DigestInit/Digest/Update/Final for MD5/SHA/SHA256/SHA384/SHA512, C_SignInit/Sign and C_VerifyInit/Verify for HMAC mechanisms.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T01:43:10Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-09T02:45:08Z"
+}

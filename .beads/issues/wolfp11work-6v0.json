@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6v0",
+  "title": "test: concurrent sign/verify thread-safety hammer test",
+  "description": "wolfP11 has never been tested under concurrent load. The sign/verify path involves per-session state (sign_active, verify_active, sign_key, verify_key) and global key table (g_keys). These must be safe under concurrent access.\n\nWrite a test in test/wp11_test_pkcs11_threads.c:\n\nThread safety test 1 \u2014 N threads each doing independent sign cycles:\n- N=8 threads, each opens its own session, generates its own key, loops 1000x: C_SignInit \u2192 C_Sign \u2192 verify with wc_ecc_verify_hash\n- Success criterion: all signatures verify correctly; no CKR_FUNCTION_FAILED or CKR_GENERAL_ERROR; no crashes\n- Detects: g_keys[] read/write races, sign_active corruption across sessions\n\nThread safety test 2 \u2014 concurrent sign + session open/close:\n- Thread A: loops C_OpenSession \u2192 C_Login \u2192 100x (C_SignInit \u2192 C_Sign) \u2192 C_CloseSession\n- Thread B: simultaneously loops C_OpenSession \u2192 C_CloseSession on the same slot\n- Success criterion: no crash, no session handle returned twice, all sign ops succeed or return valid error (not garbage)\n- Detects: session slot allocation races\n\nThread safety test 3 \u2014 sign vs. FindObjects interleave:\n- Thread A: tight loop C_SignInit \u2192 C_Sign\n- Thread B: tight loop C_FindObjectsInit \u2192 C_FindObjects \u2192 C_FindObjectsFinal\n- Success criterion: no crash, sign results cryptographically correct\n- Detects: g_keys[] iteration races\n\nRun under valgrind --tool=helgrind and/or ThreadSanitizer (-fsanitize=thread) to catch races that don't manifest as crashes.\n\nGuard with #ifdef WOLFP11_CFG_TEST_THREADS and add to Makefile as a separate test target.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:56:50Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:49:01Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ghii",
+  "title": "soft_zero: add memory barrier for aggressive optimizers",
+  "description": "soft_zero() uses a volatile uint8_t* cast to prevent dead-store elimination. This is the standard C99 pattern and correct for most targets. However, aggressive LTO or link-time inlining in -O3/profile-guided builds can still eliminate the writes on some toolchains if the struct containing the buffer is provably dead. wolfssl/wolfcrypt already uses ForceZero() which on relevant targets falls back to memset_s (C11), explicit_bzero (Linux/BSD), or SecureZeroMemory (Windows). Fix: replace soft_zero() calls with wc_MemZero() (wolfCrypt 5.6+ alias for the above). If wc_MemZero is unavailable, keep soft_zero() but add a compile-time comment explaining why the portable volatile pattern is acceptable for this target set.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T15:04:15Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-10T15:11:21Z"
+}

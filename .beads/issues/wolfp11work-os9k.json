@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-os9k",
+  "title": "OpenPGP: SW 0x6C (wrong Le) not handled, PIV handles it",
+  "description": "ISO 7816-4 SW1=0x6C means 'wrong Le, retry with Le=SW2'. wp11_proto_piv.c handles this correctly (lines 572-580). wp11_proto_openpgp.c does not -- it returns WP11_OPENPGP_ERR_SW on 0x6C responses. Compliant OpenPGP tokens may send 0x6C during sign/authenticate/get_ard, causing spurious failures.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:17Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:15:11Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-dgv",
+  "title": "fix: PIV functions only check SW 9000 on success \u2014 do not distinguish 6xxx error classes",
+  "description": "wp11_piv_sign, wp11_piv_generate_key, and wp11_piv_ecdh check only for SW 9000 success. Any non-9000 response returns the generic WP11_PIV_ERR_SW. Real tokens return many distinct 6xxx codes that need distinct handling:\n\n- 6700: Wrong length (Lc or Le mismatch) \u2014 command construction bug, should never happen in production but if it does, CKR_FUNCTION_FAILED is wrong; should be CKR_ARGUMENTS_BAD or at least logged distinctly\n- 6982: Security status not satisfied (PIN not verified, or PIN verification failed) \u2014 maps to CKR_USER_NOT_LOGGED_IN\n- 6A80: Incorrect parameters in command data field \u2014 command construction bug\n- 6A81: Function not supported by this token \u2014 maps to CKR_MECHANISM_INVALID or CKR_ACTION_PROHIBITED\n- 6A88: Reference data not found (key slot empty) \u2014 maps to CKR_KEY_HANDLE_INVALID\n- 6900: No precise diagnosis \u2014 log SW and return CKR_DEVICE_ERROR\n- 6B00: Wrong P1/P2 \u2014 command construction bug, log it\n- 6Dxx: Instruction not supported \u2014 applet confusion or wrong token type\n\nFix: Add a piv_sw_to_err(sw1, sw2) dispatch table in wp11_proto_piv.c that maps SW codes to typed wp11_piv_err_t values. Every PIV function's SW check becomes: return piv_sw_to_err(sw1, sw2); instead of bare WP11_PIV_ERR_SW. The PKCS#11 layer maps these to appropriate CKR_ codes.\n\nAdd a comment block at piv_sw_to_err listing the SP 800-73-4 and ISO 7816-4 sources for each mapping.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:01:42Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:57Z"
+}

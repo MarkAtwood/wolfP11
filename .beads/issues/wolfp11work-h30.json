@@ -1,0 +1,26 @@
+{
+  "id": "wolfp11work-h30",
+  "title": "hp-2: hotplug event queue + C_WaitForSlotEvent",
+  "description": "Add pthread_cond_t/pthread_mutex_t hotplug notification infrastructure. Ring buffer for slot change events (slot_id + arrived flag). Implement C_WaitForSlotEvent: poll mode (CKF_DONT_BLOCK -> CKR_NO_EVENT) and blocking mode. Add wp11_test_inject_hotplug() hook for test-only mock injection (WOLFP11_CFG_TEST guard). Hotplug callback pushes to queue under g_hotplug_mutex, signals g_hotplug_cond \u2014 never holds g_lock during signal to avoid deadlock.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:58:33Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-07T23:07:26Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-9nd",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:58:38Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-wor",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:58:37Z"
+    }
+  ]
+}

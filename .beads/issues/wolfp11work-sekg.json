@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-sekg",
+  "title": "Extract shared keystore ops into wp11_backend_keystore.c",
+  "description": "flash_sign/verify/decrypt and fsdir_sign/verify/decrypt are byte-for-byte identical except symbol names and backend type tag checks. Extract into a single ks_sign/ks_verify/ks_decrypt in src/wp11_backend_keystore.c that accepts either WP11_BACKEND_USB_FLASH or WP11_BACKEND_FSDIR. Both backend files keep their exported ops struct but point function pointers at the shared implementation. Add wp11_backend_keystore.c to Makefile SRCS (always compiled when either backend is enabled). Remove ~200 LOC of duplicated code.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T20:49:48Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T20:53:20Z"
+}

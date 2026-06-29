@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-94s",
+  "title": "HMAC C_Verify branch after volatile XOR loop is not constant-time",
+  "description": "In wp11_pkcs11.c around line 6003, HMAC verification uses a volatile XOR accumulator loop followed by 'if (diff != 0)'. The branch leaks timing information: a compiler is free to optimize the volatile loop away or introduce branch misprediction observable via cache timing. wolfCrypt provides wc_ConstantCompare() (or XMEMCMP_CT). The branch-after-loop pattern is the classic mistake in hand-rolled constant-time compares.\n\nFix: replace the volatile XOR loop with wc_ConstantCompare() or equivalent from wolfCrypt. Add comment explaining why a library function is required rather than rolling our own.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:31:49Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T16:07:37Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-slul",
+  "title": "RSA-PSS tests only cover sLen=0; no explicit sLen test",
+  "description": "test_soft_rsa_pss sets pss_params.sLen=0 (hash-length salt via RSA_PSS_SALT_LEN_DEFAULT mapping) but never tests explicit non-zero sLen (e.g. sLen=32 for SHA-256). If the sLen->salt_len mapping regresses for non-zero values, no test catches it. Also missing: a round-trip C_Sign -> C_Verify on the same key+session to confirm sign and verify compose correctly (current test only does Part A: wp11-sign vs oracle-verify, and Part B: oracle-sign vs wp11-verify).",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:09:26Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T06:19:01Z"
+}

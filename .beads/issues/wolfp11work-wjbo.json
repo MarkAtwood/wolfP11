@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-wjbo",
+  "title": "risk: token DB compile-time count check should use _Static_assert",
+  "description": "wp11_token_db.c uses extern char wp11_token_db_count_check[(WP11_TOKEN_DB_SIZE == 7u) ? 1 : -1] to enforce the token count. When this fails, the compiler error is 'array has negative size', which is cryptic. Replace with _Static_assert(WP11_TOKEN_DB_SIZE == 7u, 'Update expected token count in compile-time check after adding/removing tokens') for a human-readable error. Requires C11; fallback for C99 is the existing trick but with a better-named symbol.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:59:24Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T17:50:39Z"
+}

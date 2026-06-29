@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-0hx",
+  "title": "keystore_load: entries array not zeroized before free on mlock failure",
+  "description": "In wp11_keystore_load (src/wp11_keystore.c), when mlock of a der_bytes allocation fails for entry j, the handler munlocks entries 0..j-1 and the entries array, then falls into cleanup. The cleanup block correctly zeroes der_bytes contents via wp11_zero, but the entries array itself (containing key labels and IDs) is freed without prior zeroing. The pattern is inconsistent with the security goals of the module. Fix: add wp11_zero(entries, entry_alloc_size) before munlock(entries, entry_alloc_size) in the mlock-failure handler.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T16:07:27Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T16:20:43Z"
+}

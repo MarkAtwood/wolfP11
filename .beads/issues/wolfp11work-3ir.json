@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-3ir",
+  "title": "fix: SELECT AID response not validated \u2014 any SW 9000 accepted without checking returned AID",
+  "description": "wp11_piv_select() sends SELECT with the PIV AID and accepts any SW 9000 response as success, without inspecting the response payload. ISO 7816-4 \u00a77.1.1 and NIST SP 800-73-4 \u00a72.3.1 specify that SELECT returns an FCI (File Control Information) template containing the selected AID.\n\nFailure mode: a token that returns SW 9000 for any SELECT (or for the wrong applet) will be treated as a successful PIV AID selection. Subsequent GENERAL AUTHENTICATE commands sent to the wrong applet may return 6D00 or 6E00 (instruction/class not supported), or \u2014 worse \u2014 be processed by a different applet with unpredictable results.\n\nFix: After checking SW 9000, parse the SELECT response to verify:\n1. Response is a valid FCI template (tag 0x6F or 0x61 per ISO 7816-4)\n2. The returned AID (tag 0x84) matches the PIV AID bytes (defined at wp11_proto_piv.c:18)\n3. If response is empty (some tokens return SW 9000 with no body), accept it \u2014 not all tokens return FCI\n4. If response contains a mismatched AID, return WP11_PIV_ERR_SW (not OK)\n\nAdd comment: 'SP 800-73-4 \u00a72.3.1: validate FCI response AID if present; empty response is also valid per ISO 7816.'\n\nThis prevents silent applet confusion on multi-applet tokens.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:01:22Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:56Z"
+}

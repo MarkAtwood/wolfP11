@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-zjv",
+  "title": "test: targeted error-path tests for SignInit/VerifyInit/DecryptInit active-flag corruption",
+  "description": "wolfP11-13f identified that C_SignInit/C_VerifyInit/C_DecryptInit set *_active=1 before validation completes, leaving the session in corrupted state on error. No automated test exercises these paths.\n\nWrite tests in test/wp11_test_pkcs11.c (or new test/wp11_test_pkcs11_error_paths.c) covering:\n\n1. C_SignInit with invalid mechanism \u2192 verify sign_active is NOT set \u2192 C_Sign returns CKR_OPERATION_NOT_INITIALIZED (not CKR_MECHANISM_INVALID again, not a sign attempt with stale state)\n2. C_SignInit with null key handle \u2192 same check\n3. C_SignInit succeeds, then C_SignInit again before C_Sign \u2192 must return CKR_OPERATION_ACTIVE; then C_Sign must still work (original init preserved)\n4. C_VerifyInit with invalid mechanism \u2192 C_Verify returns CKR_OPERATION_NOT_INITIALIZED\n5. C_DecryptInit with invalid mechanism \u2192 C_Decrypt returns CKR_OPERATION_NOT_INITIALIZED\n6. C_SignInit succeeds, C_Sign fails (null output buffer) \u2192 active flag cleared \u2192 subsequent C_Sign returns CKR_OPERATION_NOT_INITIALIZED\n7. C_SignInit succeeds, C_SignFinal called (if implemented) fails \u2192 verify state reset\n\nFor each test: independently verify the session state is clean after the error, not just that an error was returned. The oracle is: after a failed Init*, calling the corresponding operation must return CKR_OPERATION_NOT_INITIALIZED, not CKR_OK or CKR_FUNCTION_FAILED.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:56:40Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:41:00Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4dzj",
+  "title": "research: flash_entry() type confusion if wrong backend handle passed",
+  "description": "flash_entry() in wp11_backend_usb_flash.c casts handle->priv to const wp11_key_entry_t* without verifying handle->backend == WP11_BACKEND_USB_FLASH. If the PKCS#11 layer ever routes a handle from a different backend to flash_sign/verify/decrypt (e.g. via a future refactor), the cast reinterprets arbitrary memory as a key entry. Research: verify that the PKCS#11 dispatch table guarantees backend-typed handles never cross backends. If confirmed safe, add a comment; if uncertain, add the type check as defense-in-depth.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:58:50Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T17:50:41Z"
+}

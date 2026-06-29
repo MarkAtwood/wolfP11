@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-q3d5",
+  "title": "Test: vacuous FindObjects assertions check count not identity",
+  "description": "Multiple flash PKCS#11 tests assert nfound >= 1 but do not verify the found object is the expected key (by type CKO_PRIVATE_KEY, ID, or label). A broken C_FindObjects that returns any N objects passes the test. The assertions must verify object attributes, not just that something was returned.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:46Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T01:34:33Z"
+}

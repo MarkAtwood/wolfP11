@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-0br",
+  "title": "size_t\u2192word32 cast without guard in peer_pub_len (hsm_derive + soft_derive)",
+  "description": "In both hsm_derive (wp11_backend_wolfhsm.c) and soft_derive (wp11_backend_soft.c), peer_pub_len (size_t) is cast directly to word32 when calling wc_ecc_import_x963 with no bounds check. On a 64-bit system, a caller passing peer_pub_len > UINT32_MAX would silently truncate the length. The fix is a guard: if (peer_pub_len > (size_t)UINT32_MAX) return -1; before each cast. In practice, no real EC point exceeds ~133 bytes (P-521 uncompressed), so this is defensive-but-correct, not currently exploitable via normal PKCS#11 paths.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:27:46Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T21:34:32Z"
+}

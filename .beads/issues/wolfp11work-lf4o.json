@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-lf4o",
+  "title": "WP11_OAEP_LABEL_MAX defined in two places",
+  "description": "WP11_OAEP_LABEL_MAX is #define'd to 64u in both wp11_pkcs11.c and wp11_backend_soft.c with no shared header. wp11_pkcs11.c sizes oaep_enc_label[] by its local definition; wp11_backend_soft.c sizes label_buf[] by its own definition. If the two values diverge a memcpy of a session label into the backend buffer becomes a stack overflow. Move the definition to wp11_backend.h.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:54:23Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T06:57:40Z"
+}

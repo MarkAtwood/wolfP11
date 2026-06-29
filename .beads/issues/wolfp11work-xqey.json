@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-xqey",
+  "title": "free_key_priv=NULL sentinel: document invariant in wp11_backend.h",
+  "description": "fsdir and usb_flash backends set free_key_priv=NULL because key_priv points into the bulk-allocated keystore entries array, which is freed as a unit by wp11_keystore_free(). This NULL sentinel is relied upon by ks_slot_clear_keys() but is not documented in wp11_backend.h near the free_key_priv field definition. A contributor who adds a new backend and sets free_key_priv=NULL for wrong reasons (or non-NULL for right reasons) has no spec to check against.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:39Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T01:26:57Z"
+}

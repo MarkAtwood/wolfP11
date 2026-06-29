@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-o32",
+  "title": "fix: PIV code does not handle SW 6C xx (wrong Le) \u2014 no retry",
+  "description": "ISO 7816-4 \u00a75.1.3: SW 6C xx means 'wrong Le; correct Le is xx'. The card is saying: resend the same command with Le=sw2 and it will work. This is a normal, spec-defined response from real PIV tokens when the caller guesses the response length wrong.\n\nwolfP11 currently returns WP11_PIV_ERR_SW on 6C xx, failing the operation instead of retrying.\n\nAffected functions: wp11_piv_sign (line ~408), wp11_piv_generate_key (line ~784), wp11_piv_ecdh (line ~1070). wp11_piv_get_cert and wp11_piv_attest use GET RESPONSE chaining and are less likely to hit this.\n\nFix: In each function that constructs an APDU with a fixed Le, after piv_get_sw check:\n  if (sw1 == 0x6Cu) {\n      /* card is telling us the correct Le \u2014 resend once with Le=sw2 */\n      cmd[cmd_len - 1] = sw2;  /* patch Le in-place */\n      /* retransmit via ccid_apdu() */\n      /* if 6C xx again, fail \u2014 avoid infinite loop */\n  }\nLimit to one retry to prevent infinite 6C\u21926C loops from a malfunctioning token.\nAdd comment: 'ISO 7816-4 \u00a75.1.3: 6C xx means wrong Le; retry with Le=sw2'.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:00:52Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:57Z"
+}

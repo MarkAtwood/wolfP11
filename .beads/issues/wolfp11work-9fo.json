@@ -1,0 +1,26 @@
+{
+  "id": "wolfp11work-9fo",
+  "title": "rxn-2: apply WP11_LOCK/UNLOCK to all C_* functions touching global state",
+  "description": "Lock on entry, unlock on every return path in: C_Initialize, C_Finalize, C_GetInfo, C_GetSlotList, C_GetSlotInfo, C_GetTokenInfo, C_GetMechanismList, C_GetMechanismInfo, C_OpenSession, C_CloseSession, C_CloseAllSessions, C_GetSessionInfo, C_Login, C_Logout, C_FindObjectsInit, C_FindObjects, C_FindObjectsFinal, C_GetAttributeValue, C_SignInit, C_Sign, C_VerifyInit, C_Verify, C_DecryptInit, C_Decrypt, C_DestroyObject. Use a goto-cleanup pattern to avoid duplicated unlock on early return.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:26:50Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-07T22:36:48Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-59n",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:26:54Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-rxn",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:26:54Z"
+    }
+  ]
+}

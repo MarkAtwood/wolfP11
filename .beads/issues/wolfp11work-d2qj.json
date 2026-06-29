@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-d2qj",
+  "title": "test: PIV BER parser with valid tag but truncated value",
+  "description": "wp11_proto_piv.c BER/TLV parsing is tested for wrong tags and overflowing values, but not for a response that claims a large length (e.g., 0x82 0x01 0x00 = 256 bytes) but delivers fewer bytes than declared. The parser should return WP11_PIV_ERR_ENCODING or WP11_PIV_ERR_TRUNCATED, not read out-of-bounds. Add a unit test in wp11_test_piv.c injecting a response buffer where the BER length field exceeds the actual buffer size.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:41Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T00:13:18Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-hjep",
+  "title": "C_DestroyObject missing encrypt_active scan",
+  "description": "C_DestroyObject scans all sessions and clears sign_active, verify_active, decrypt_active when those ops reference the deleted key. It does NOT clear encrypt_active/encrypt_key. A caller that destroys a key while C_EncryptUpdate is in progress will later call C_EncryptFinal referencing a freed key handle -- use-after-free or NULL deref.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:54:15Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T06:57:38Z"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-4cq",
+  "title": "BUG: CCID wp11_ccid_close() releases interface 0 regardless of which was claimed",
+  "description": "wp11_ccid_open() discovers the CCID interface number dynamically (stored in local variable iface_num). struct wp11_ccid_ctx has no field to store it. wp11_ccid_close() calls libusb_release_interface(ctx->usb_dev, 0) hardcoded to interface 0. For any device where the CCID interface is not at index 0, the wrong interface is released. Fix: add int claimed_iface to struct wp11_ccid_ctx, set it in open(), use it in close(). Add comment explaining why.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:10:58Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-07T22:22:03Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:07Z"
+    }
+  ]
+}

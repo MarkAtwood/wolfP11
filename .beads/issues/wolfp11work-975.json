@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-975",
+  "title": "research: piv_get_sw underflow when resplen < 2",
+  "description": "In src/wp11_proto_piv.c:129-134, piv_get_sw() does:\n  *sw1 = resp[resplen - 2u];\n  *sw2 = resp[resplen - 1u];\nwithout bounds checking. If resplen < 2, the size_t arithmetic underflows, producing a huge index and an out-of-bounds read.\n\nAll current callers pre-validate resplen >= 2 before calling, so this is not currently exploitable. But the function has no contract annotation or internal guard, making it a latent bug for future callers.\n\nResearch: Audit all call sites to confirm every caller has the guard. Then either (a) add a precondition assert inside piv_get_sw, (b) have piv_get_sw return a bool and check it, or (c) add a comment documenting the mandatory precondition so future callers know.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:29Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-08T23:56:50Z"
+}

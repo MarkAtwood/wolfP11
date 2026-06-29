@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4hby",
+  "title": "Soft backend: C_GenerateKeyPair for ECC and RSA",
+  "description": "wolfCrypt has wc_ecc_make_key and wc_MakeRsaKey but C_GenerateKeyPair in wp11_pkcs11.c is only implemented for the wolfHSM backend. Add soft-backend key generation: generate key with wolfCrypt, DER-encode it, store as a wp11_soft_key_t in g_keys[], and return public key attributes. Should support CKM_EC_KEY_PAIR_GEN (P-256, P-384) and CKM_RSA_PKCS_KEY_PAIR_GEN.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T20:05:07Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-10T20:20:30Z"
+}

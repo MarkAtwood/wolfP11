@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-w24",
+  "title": "fix: token database has no entries for CAC cards, Feitian tokens, or generic PIV fallback",
+  "description": "wp11_token_db lists: YubiKey 5 (3 models), NitroKey HSM 2, NitroKey Pro 2. The CLAUDE.md states the target includes 'CAC/PIV cards, many Feitian tokens' but none of these appear in the table.\n\nA token not in the table falls through to the 'unknown' path. If that path assigns proto=WP11_PROTO_PIV with no quirks, it may work \u2014 or it may fail silently with a token that needs WP11_QUIRK_SHORT_APDU or other handling.\n\nResearch and fix:\n1. Add Feitian ePass3003 (0x096E:0x0608), FIDO K9 (0x096E:0x0858), and other common PIV-capable Feitian models\n2. Add DoD CAC card ATR patterns (ATR-based matching if VID/PID is not available via USB \u2014 CAC cards may appear via CCID with a generic reader VID/PID)\n3. Add a generic PIV fallback row: VID=0, PID=0, proto=WP11_PROTO_PIV, quirks=WP11_QUIRK_SHORT_APDU (conservative default \u2014 assume short APDU until extended APDU is confirmed to work)\n4. Add WP11_QUIRK_EXTENDED_APDU flag and set it explicitly on tokens known to support extended APDUs (YubiKey 5, NitroKey HSM 2)\n5. Document in CLAUDE.md how to add a new token row and what each quirk flag does\n\nAdd a comment above the table: 'Tokens not in this table are attempted as generic PIV with conservative quirks \u2014 see wp11_token_db_lookup_unknown() for fallback behavior.'",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:02:15Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:05:57Z"
+}

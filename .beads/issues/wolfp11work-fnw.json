@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-fnw",
+  "title": "HSM_KEY_TYPE_* constants have no compile-time check vs WP11_KEY_TYPE_*",
+  "description": "wp11_backend_wolfhsm.c defines HSM_KEY_TYPE_RSA=0 and HSM_KEY_TYPE_EC=1 to avoid including wp11_keystore.h. These must match WP11_KEY_TYPE_RSA=0 and WP11_KEY_TYPE_EC=1 in wp11_keystore.h exactly. There is no _Static_assert or other mechanism to catch a future mismatch. If someone changes one without the other, key type dispatch silently breaks. Fix: include wp11_keystore.h and use WP11_KEY_TYPE_* directly, or add _Static_assert after defining the local constants.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:27:53Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T21:34:32Z"
+}

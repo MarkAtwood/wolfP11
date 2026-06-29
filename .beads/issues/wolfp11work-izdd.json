@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-izdd",
+  "title": "Backend dispatch table: sign/verify/decrypt must never be NULL",
+  "description": "wp11_backend.h vtable documents that free_key_priv and derive may be NULL, but does not document whether sign/verify/decrypt can be NULL. A backend that sets sign=NULL causes a NULL dereference in the dispatch path. There is no compile-time or runtime assertion that required ops are populated. Fix: add a wp11_backend_validate() that asserts required function pointers on backend registration.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:19Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:11:04Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6ox",
+  "title": "CLEANUP: memcmp with NUL-including lengths in CBOR decoder should be strcmp",
+  "description": "src/wp11_keystore.c lines ~563, 571, 580, 598 in decode_cbor_payload: memcmp(key_name, \"id\", 3) compares 3 bytes including NUL; memcmp(key_name, \"label\", 6) compares 6 bytes including NUL, etc. The NUL-including count means the comparison only works because cbor_read_text always NUL-terminates key_name. This is fragile \u2014 the intent is string comparison but the form looks like length-prefixed binary comparison. It will cause a reader to do a double-take and may be changed incorrectly by a contributor who notices the apparent miscounting. Fix: replace all four memcmp calls with strcmp. Add a one-line comment above the map-key comparisons: 'cbor_read_text guarantees NUL-termination, so strcmp is safe here.'",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:04:01Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T05:24:07Z"
+}

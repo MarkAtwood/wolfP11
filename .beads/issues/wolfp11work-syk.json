@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-syk",
+  "title": "RISK: soft token slot uses WP11_PROTO_PIV as placeholder protocol",
+  "description": "wp11_pkcs11.c:1116: g_slots[0].proto = WP11_PROTO_PIV with comment 'placeholder; soft token doesn't use a protocol'. Any contributor who iterates g_slots[] and branches on proto (a natural thing to do when adding PIV-specific features) will misidentify the soft token as a PIV device. The WP11_PROTO_FLASH value already exists as a distinct protocol type; there is no WP11_PROTO_SOFT or WP11_PROTO_NONE. Fix: add WP11_PROTO_SOFT = 0 to the wp11_proto_t enum in wp11_token_db.h (value 0 ensures zero-init works correctly), update g_slots[0].proto to use it, and add a static_assert or comment noting that proto == WP11_PROTO_SOFT is the soft-token discriminant. This prevents the PIV APDU path from ever being accidentally invoked for the soft token.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:34:45Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T05:40:02Z"
+}

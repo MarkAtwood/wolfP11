@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ehr",
+  "title": "Makefile: header changes do not trigger recompilation",
+  "description": "The Makefile lists source files as dependencies for the library and test targets but not header files. Editing any wolfp11/*.h file does not cause recompilation. This is a latent correctness issue: a developer editing wp11_settings.h to change a compile-time constant will not see the effect until 'make clean'.\n\nFix: add automatic dependency generation via gcc -MMD -MP and include the generated .d files in the Makefile. Add comment explaining the pattern.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:25Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T16:07:42Z"
+}

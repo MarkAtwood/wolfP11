@@ -1,0 +1,26 @@
+{
+  "id": "wolfp11work-8xo",
+  "title": "Tests: wp11_test_backend_fs_dir.c",
+  "description": "Test suite for the fs-dir backend using a tmpdir as the keystore directory. Cover: empty directory (zero slots), single .p11k file (one slot), multiple files (multiple slots), file added after C_Initialize (inotify path if implemented), corrupted file (graceful skip), PIN verify. Must use independent oracles (known test vectors or cross-validation against soft backend), not the backend as its own oracle.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:28:55Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T16:35:53Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-1ab",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:29:03Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-dz3d",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T09:35:52Z"
+    }
+  ]
+}

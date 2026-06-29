@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-yr57",
+  "title": "cert-add --label lookup rejects keys created externally",
+  "description": "cmd_keystore_cert_add in src/cli/wp11_cli.c applies is_valid_label() to the by_label argument, which is used to *find* an existing key (not create one). If a keystore was created programmatically (via the API, not the CLI) with a label containing bytes outside the CLI validator's range, the user cannot attach a certificate to that key using cert-add. The validator is correct for creation sites (cmd_keystore_create, cmd_keystore_import_key) but over-restrictive for lookup sites. Fix: remove the is_valid_label() call from cmd_keystore_cert_add. Replace with a non-empty check only.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T02:25:03Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-11T02:28:48Z"
+}

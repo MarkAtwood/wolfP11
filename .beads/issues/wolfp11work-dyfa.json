@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-dyfa",
+  "title": "CLI: empty or binary labels accepted without validation",
+  "description": "src/cli/wp11_cli.c strncpy()s user-supplied --label into the keystore entry without checking that the result is non-empty or printable. An empty label or a label containing NUL bytes is silently accepted. Add: after strncpy, check strlen(label) > 0 and that all bytes are printable ASCII.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:55Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T01:34:33Z"
+}

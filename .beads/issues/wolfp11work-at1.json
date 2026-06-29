@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-at1",
+  "title": "BUG: C_DestroyObject calls wp11_soft_key_free on flash keys",
+  "description": "C_DestroyObject (src/wp11_pkcs11.c ~line 1820) calls wp11_soft_key_free(obj->key_priv) without checking obj->is_flash_key. For a flash key, key_priv points into keystore memory owned by wp11_keystore_t \u2014 not a separately heap-allocated wp11_soft_key_t. Calling wp11_soft_key_free on it is a type confusion and heap corruption, followed by a double-free when C_Logout/C_Finalize calls wp11_keystore_free. Trigger: any conformant PKCS#11 application calling C_DestroyObject on a key handle returned from C_FindObjects on a flash slot after C_Login. Fix: add the same is_flash_key guard that exists in C_Finalize (lines 1161-1163) to C_DestroyObject. The inline doc to add: a block comment at the wp11_key_obj_t struct listing every call site that must check is_flash_key before touching key_priv.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:02:52Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-08T05:13:34Z"
+}

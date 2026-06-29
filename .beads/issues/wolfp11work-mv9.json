@@ -1,0 +1,26 @@
+{
+  "id": "wolfp11work-mv9",
+  "title": "ecb-3: add unit tests for ber_len_decode and RSA-2048 PIV response parsing",
+  "description": "Add tests in wp11_test_piv.c: (1) ber_len_decode short form 0x00, 0x7F, (2) one-byte long form 0x81 0xFF, (3) two-byte long form 0x82 0x01 0x00 = 256, (4) indefinite 0x80 returns error, (5) truncated buffer returns error. Also add a mock CCID test where the PIV sign response uses a 3-byte length (simulating RSA-2048) and verify the signature bytes are extracted correctly. Vectors: RSA-2048 sig response 7C 82 01 04 82 82 01 00 [256 bytes sig].",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:26:33Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-07T22:36:44Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-bcl",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:26:47Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-ecb",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:26:48Z"
+    }
+  ]
+}

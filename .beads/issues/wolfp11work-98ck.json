@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-98ck",
+  "title": "fix: _Static_assert coupling CBOR DoS guard to MAX_ENTRIES",
+  "description": "The DoS guard in cbor_skip (line 447: val > WP11_KEYSTORE_MAX_CT_LEN/2) prevents a forged map from claiming more pairs than can physically fit in the buffer. This bound is derived from MAX_ENTRIES: each entry is a CBOR map, and the minimum bytes per pair is 2, so the max pair count is MAX_CT_LEN/2. If MAX_ENTRIES is raised without updating the DoS guard, a malicious file can trigger O(MAX_CT_LEN^2) cbor_skip calls. Fix: add _Static_assert(WP11_KEYSTORE_MAX_ENTRIES * 2u <= WP11_KEYSTORE_MAX_CT_LEN / 2u, \"raise CBOR DoS guard if MAX_ENTRIES increases\") adjacent to both constants. Add a comment at the guard explaining the derivation.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:10:22Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T00:02:04Z"
+}

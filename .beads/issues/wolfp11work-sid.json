@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-sid",
+  "title": "BUG: unsigned underflow in PIV response parser when resplen<2",
+  "description": "wp11_piv_sign() checks (resplen - 2u) < 2u before subtracting 2 from a size_t. If a CCID transport delivers resplen=1, the subtraction wraps to SIZE_MAX-1 and subsequent i < (resplen-2u) bounds checks all pass, allowing out-of-bounds reads into the response buffer. Similarly the 7C/82 tag searches iterate past the buffer. Fix: check resplen >= 2 before any arithmetic; return WP11_PIV_ERR_TRUNCATED (new code) if not.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:10:42Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-07T22:22:02Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:06Z"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-z7e",
+  "title": "fix: C_SeedRandom and C_GenerateRandom return wrong CKR codes",
+  "description": "pkcs11test ReadOnlySessionTest.SeedRandom, SeedRandomBadArguments, GenerateRandom confirm:\n- C_SeedRandom with a valid session returns wrong code (expected CKR_RANDOM_NO_RNG=0x121 if seeding not supported)\n- C_SeedRandom with pSeed=NULL should return CKR_ARGUMENTS_BAD but does not\n- C_SeedRandom with invalid session handle should return CKR_SESSION_HANDLE_INVALID but does not\n- C_GenerateRandom returns wrong code\n\nPKCS#11 2.40 \u00a711.15: C_SeedRandom returns CKR_RANDOM_SEED_NOT_SUPPORTED if seeding is not supported, or CKR_RANDOM_NO_RNG if no RNG. C_GenerateRandom must validate session handle and NULL pointer.\n\nFix: Audit C_SeedRandom and C_GenerateRandom for: (1) session handle validation, (2) NULL pointer checks with CKR_ARGUMENTS_BAD, (3) correct error codes for unsupported seeding.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:39:26Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-08T23:34:34Z"
+}

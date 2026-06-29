@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ety",
+  "title": "test: PKCS#11 negative-path state machine \u2014 pre-init, double-op, invalid args",
+  "description": "pkcs11test found that wolfP11 has weak negative-path coverage in the PKCS#11 state machine. These tests belong in wolfP11's own suite so they run in CI without pkcs11test as a dependency.\n\nWrite tests in test/wp11_test_pkcs11.c covering:\n\nPre-init checks (verify wolfP11-b57 fix):\n- Call every C_* function before C_Initialize; verify each returns CKR_CRYPTOKI_NOT_INITIALIZED, not CKR_FUNCTION_NOT_SUPPORTED\n- Specifically: C_EncryptInit, C_GetSlotList, C_GetTokenInfo, C_OpenSession, C_Sign, C_SeedRandom, C_GenerateRandom, C_FindObjectsInit\n\nArgument validation (verify wolfP11-9iz fix):\n- C_Initialize with init_args.pReserved != NULL \u2192 CKR_ARGUMENTS_BAD\n- C_Finalize with pReserved != NULL \u2192 CKR_ARGUMENTS_BAD\n- C_GenerateKeyPair with public_attrs=NULL \u2192 CKR_ARGUMENTS_BAD\n- C_GenerateKey with invalid session 99999 \u2192 CKR_SESSION_HANDLE_INVALID\n- C_SeedRandom with pSeed=NULL \u2192 CKR_ARGUMENTS_BAD\n\nRNG codes (verify wolfP11-z7e fix):\n- C_SeedRandom with invalid session \u2192 CKR_SESSION_HANDLE_INVALID\n- C_SeedRandom if seeding not supported \u2192 CKR_RANDOM_SEED_NOT_SUPPORTED or CKR_RANDOM_NO_RNG (spec allows both)\n- C_GenerateRandom with pRandomData=NULL \u2192 CKR_ARGUMENTS_BAD\n\nSession state machine:\n- C_Login(CKU_SO) with open RO session \u2192 CKR_SESSION_READ_ONLY_EXISTS (verify wolfP11-eg0 fix)\n- C_Login twice \u2192 CKR_USER_ALREADY_LOGGED_IN\n- C_Sign before C_SignInit \u2192 CKR_OPERATION_NOT_INITIALIZED\n- C_Sign after failed C_SignInit \u2192 CKR_OPERATION_NOT_INITIALIZED (verify wolfP11-13f fix)\n- C_FindObjects before C_FindObjectsInit \u2192 CKR_OPERATION_NOT_INITIALIZED\n- C_FindObjectsFinal before C_FindObjectsInit \u2192 CKR_OPERATION_NOT_INITIALIZED\n- C_Encrypt/C_Decrypt before C_EncryptInit/C_DecryptInit \u2192 CKR_OPERATION_NOT_INITIALIZED\n\nCross-slot:\n- C_DestroyObject using session from wrong slot \u2192 CKR_OBJECT_HANDLE_INVALID (verify wolfP11-w2m fix)\n\nEach test: assert the exact CKR_ code, not just 'non-zero'. Every test is independent (fresh C_Initialize/C_Finalize).",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:57:47Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:37:24Z"
+}

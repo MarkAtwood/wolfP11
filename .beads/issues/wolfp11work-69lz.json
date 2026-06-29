@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-69lz",
+  "title": "C_FindObjectsInit: missing OPERATION_ACTIVE check",
+  "description": "C_FindObjectsInit does not check s->find_active before overwriting find_tmpl[]. If called twice without an intervening C_FindObjectsFinal, the second call silently resets the template without clearing find_pos, producing inconsistent search state. PKCS#11 spec requires CKR_OPERATION_ACTIVE when a find is already running.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:00:55Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-11T01:15:13Z"
+}

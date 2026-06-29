@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-u1lx",
+  "title": "soft_verify: unguarded siglen cast for ECDSA variants",
+  "description": "wp11_backend_soft.c soft_verify() casts siglen to word32 for ECDSA and ECDSA_SHA256 without WP11_FITS_U32 guard. EDDSA has the guard (lines 513-514) but ECDSA/ECDSA_SHA256 do not. A truncated siglen causes wc_ecc_verify_hash to read fewer signature bytes, potentially accepting an invalid signature as valid.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:00:45Z",
+  "updated_at": "2026-05-01T04:54:51Z",
+  "closed_at": "2026-04-11T01:06:10Z"
+}

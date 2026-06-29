@@ -1,0 +1,21 @@
+{
+  "id": "wolfp11work-s5x",
+  "title": "wolfHSM C_Login: server connection and whClientContext lifecycle",
+  "description": "Implement the C_Login path for WP11_PROTO_WOLFHSM slots.\n\nWhat needs to be done:\n- When C_Login is called on a wolfHSM slot, allocate and connect a whClientContext using the transport configured for the slot (initially SHM for loopback; TCP for networked deployments)\n- Store the connected context in g_slots[slot_id].client\n- On success, mark slot as logged in (slot_login=1, all sessions updated)\n- On C_Logout or C_Finalize, call wh_Client_Cleanup() and free/zero the context\n\nTransport configuration:\n- SHM transport: server ID from env WOLFP11_HSM_SHM_ID (for local testing)\n- TCP transport: host:port from env WOLFP11_HSM_TCP_ADDR (for networked HSM)\n- Default to SHM if only SHM env var is set; TCP if only TCP; error if neither\n\nError mapping:\n- Connection refused / timeout \u2192 CKR_DEVICE_NOT_FOUND\n- Auth failure \u2192 CKR_PIN_INCORRECT\n- Any wh_Client_Init failure \u2192 CKR_DEVICE_ERROR",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T02:52:39Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-09T03:13:27Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-e3y",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T19:53:36Z"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-e3y",
+  "title": "wolfHSM slot model: WP11_PROTO_WOLFHSM, slot struct, C_Initialize",
+  "description": "Add the slot infrastructure that makes wolfHSM a first-class backend type.\n\nWhat needs to be done:\n- Add WP11_PROTO_WOLFHSM to the wp11_proto_t enum in wp11_token_db.h\n- Extend wp11_slot_t (in wp11_pkcs11.c) with a 'whClientContext *client' field under #ifdef WOLFP11_CFG_WOLFHSM_BACKEND\n- At C_Initialize time, read the wolfHSM server address from an environment variable or compile-time default (WOLFP11_CFG_WOLFHSM_SERVER_ADDR) and, if set, create a slot of proto WP11_PROTO_WOLFHSM with token_present=0 initially (slot present but no client context yet \u2014 login establishes the connection)\n- C_GetSlotList and C_GetSlotInfo must return the wolfHSM slot; C_GetTokenInfo must report label, manufacturer, model\n\nDesign decisions:\n- One wolfHSM slot per server address; multiple servers could be supported later via a comma-separated list in the env var\n- Token label comes from a separate env var (WOLFP11_CFG_WOLFHSM_LABEL) or defaults to 'wolfHSM Server'\n- whClientConfig is stack-allocated in C_Initialize, connection deferred to C_Login",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T02:52:33Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-09T03:04:18Z"
+}

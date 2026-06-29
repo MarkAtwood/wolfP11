@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-v9v",
+  "title": "C_GetAttributeValue: RSA key attribute export",
+  "description": "C_GetAttributeValue returns CKR_ATTRIBUTE_TYPE_INVALID for CKA_MODULUS and CKA_PUBLIC_EXPONENT on RSA keys (should return key data), and for CKA_PRIME_1/PRIME_2/PRIVATE_EXPONENT on RSA private keys (should return CKR_ATTRIBUTE_SENSITIVE). Fixes ReadWriteSessionTest.ExtractKeys.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T01:19:23Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T01:27:27Z"
+}

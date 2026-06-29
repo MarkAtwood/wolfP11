@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-l3ex",
+  "title": "wolfHSM slot: advertise only supported mechanisms",
+  "description": "C_GetMechanismList returns the same global g_mechs[] for all slots, including wolfHSM slots. wolfHSM slots only support CKM_RSA_PKCS, CKM_ECDSA, CKM_ECDSA_SHA256, and CKM_ECDH1_DERIVE. Advertising ~22 mechanisms (including DES, AES, HMAC variants) when the backend will return CKR_MECHANISM_INVALID for them is a PKCS#11 spec violation (2.40 s11.8: C_GetMechanismList shall return only mechanisms the token supports). Fix: build per-slot mechanism lists at C_Initialize time based on the backend type, or filter g_mechs[] in C_GetMechanismList by consulting the slot's backend ops struct. wolfHSM backend ops should expose a supported-mechanism bitmask or list.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T19:24:44Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T19:34:36Z"
+}

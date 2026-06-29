@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-hfv",
+  "title": "fix: GET RESPONSE uses SW2 as Le \u2014 should use Le=0 for max compatibility",
+  "description": "In wp11_piv_get_cert and wp11_piv_attest, the GET RESPONSE chaining loop sends the next GET RESPONSE with Le=sw2 (the value from SW 61 xx). This is ISO 7816-4 \u00a77.6.1 compliant but non-standard in practice \u2014 most implementations use Le=0 (meaning 'give me everything you have') which triggers the token to return up to its internal buffer limit.\n\nUsing Le=sw2 works on compliant tokens but can cause failures on tokens that:\n- Return a sw2 of 0x00 (meaning 256 bytes, not 0) \u2014 sw2=0 must be treated as 256 per ISO 7816\n- Have a firmware bug where Le=sw2 triggers unexpected behavior\n- Are strict about Le values and return 6C xx if the Le doesn't exactly match\n\nFix:\n1. Handle sw2==0x00 explicitly: per ISO 7816-4, sw2=0 in SW 61 00 means 256 bytes available, not zero. The current code would send Le=0x00 = 256, which is correct \u2014 confirm this is handled.\n2. Consider switching to Le=0 (send as 0x00 which means max/256) instead of Le=sw2 for better compatibility with non-strict tokens.\n3. Add comment at the GET RESPONSE command construction explaining the Le choice and the ISO 7816-4 \u00a77.6.1 reference.\n\nResearch: test against a YubiKey with a large certificate to confirm current behavior is correct with sw2 chaining.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:01:32Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-08T23:56:51Z"
+}

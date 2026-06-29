@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-2oi",
+  "title": "keystore_load: decrypted plaintext not mlock'd during CBOR decode",
+  "description": "In wp11_keystore_load (src/wp11_keystore.c), the plain buffer is allocated with plain malloc before AES-GCM decryption. After decryption, private key DER material sits in an unprotected heap buffer while decode_cbor_payload runs. cbor_read_bytes_alloc inside that decode also mallocs each der_bytes with no mlock. mlock is applied to the entries array and der_bytes only after decode completes. Any page fault during decode can swap the decrypted key material to disk, contradicting the stated threat model. Fix: mlock(plain, plain_len) immediately after malloc, before wc_AesGcmDecrypt; mlock each der_bytes allocation inside cbor_read_bytes_alloc before returning it.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T16:07:23Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T16:20:07Z"
+}

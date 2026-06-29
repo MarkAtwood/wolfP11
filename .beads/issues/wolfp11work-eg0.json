@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-eg0",
+  "title": "fix: C_Login SO attempt with open RO session returns wrong code",
+  "description": "pkcs11test ReadOnlySessionTest.SOLoginFail, ReadWriteSessionTest.ReadOnlySessionSOLoginFail, RWUserSessionTest.SOLoginFail confirm:\n- C_Login(CKU_SO) when a read-only session is open should return CKR_SESSION_READ_ONLY_EXISTS\n- Instead wolfP11 returns CKR_USER_ALREADY_LOGGED_IN or falls through the CKU_SO no-op path\n\nPKCS#11 2.40 \u00a711.16: C_Login with CKU_SO must return CKR_SESSION_READ_ONLY_EXISTS if any RO session is open on the token.\nThis check must happen before any authentication attempt.\n\nRelated to wolfP11-drz (CKU_SO not handled). The session-state check is a prerequisite to the CKU_SO authentication path.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:39:30Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-08T23:35:30Z"
+}

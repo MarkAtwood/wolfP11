@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-i0uw",
+  "title": "improvement: add _Static_assert coupling CBOR DoS guard to keystore limits",
+  "description": "wp11_keystore.c:437-450 guards against CBOR DoS by rejecting maps with more than WP11_KEYSTORE_MAX_CT_LEN/2 pairs. This limit is tightly coupled to WP11_KEYSTORE_MAX_ENTRIES: if someone increases MAX_ENTRIES without adjusting the guard, a malicious file can trigger excessive iteration. Add: _Static_assert(WP11_KEYSTORE_MAX_ENTRIES * 2 <= WP11_KEYSTORE_MAX_CT_LEN / 2, \"CBOR DoS guard must be updated when MAX_ENTRIES changes\"); Add a comment explaining the derivation next to both constants.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:18Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-10T23:10:08Z"
+}

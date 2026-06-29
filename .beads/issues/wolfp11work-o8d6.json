@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-o8d6",
+  "title": "CCID thread-safety not documented in public header",
+  "description": "wp11_ccid.h declared wp11_ccid_apdu() without stating it is not thread-safe. The ctx->seq counter is shared with no locking; concurrent calls corrupt the CCID conversation. Added thread-safety note to wp11_ccid.h wp11_ccid_apdu() doc comment.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:37:30Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T22:37:39Z"
+}

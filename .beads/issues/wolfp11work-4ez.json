@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4ez",
+  "title": "fix: soft token accepts any PIN when no keystore file exists (conformance)",
+  "description": "pkcs11test ReadOnlySessionTest.UserLoginWrongPIN confirms: C_Login with a wrong PIN succeeds on a fresh soft token (no keystore file exists). The code treats a missing keystore as 'fresh token, any PIN is ok'. pkcs11test opens a session, attempts login with PIN 'simply-wrong', and expects CKR_PIN_INCORRECT but gets CKR_OK.\n\nPKCS#11 2.40 \u00a711.16: C_Login must return CKR_PIN_INCORRECT for a wrong PIN. A token without a keystore is not a token that accepts any PIN \u2014 it is an uninitialized token.\n\nDesign question: wolfP11 currently allows C_Login to double as C_InitPIN (first login sets the PIN). This means there is no way to distinguish 'first use' from 'wrong PIN'. Options:\n1. Require explicit C_InitToken/C_InitPIN to set the PIN before C_Login works (most spec-compliant).\n2. Store a PIN verifier (HKDF-derived token, not the key-encrypting key) so wrong PINs can be rejected without attempting full keystore decrypt.\n3. Accept the non-conformance and document it.\n\nFile as research: determine which option fits the wolfP11 design goal and implement it.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:39:41Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:31:38Z"
+}

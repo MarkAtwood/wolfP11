@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-0x1",
+  "title": "fix: wolfHSM backend collapses all errors to -1, masks server down",
+  "description": "wolfHSM exposes a clean error taxonomy in wh_error.h. wolfP11 currently collapses all of these to return -1. The PKCS#11 layer then maps -1 to a generic failure.\n\nwolfHSM error codes that must be mapped distinctly:\n- WH_ERROR_NOTREADY (-2001): transport retry \u2014 NOT a permanent failure, should not propagate as CKR_DEVICE_ERROR\n- WH_ERROR_TIMEOUT (-2010): server not responding \u2014 CKR_DEVICE_ERROR with TIMEOUT semantics\n- WH_ERROR_ABORTED (-2002): fatal connection failure \u2014 CKR_DEVICE_ERROR\n- WH_ERROR_NOTFOUND (-2104): key not in NVM \u2014 CKR_KEY_HANDLE_INVALID\n- WH_ERROR_USAGE (-2009): key usage flags reject the operation \u2014 CKR_ACTION_PROHIBITED  \n- WH_ERROR_NOTIMPL (-2008): server compiled without support \u2014 CKR_MECHANISM_INVALID\n- WH_COMM_AUX_RESP_UNSUPP: server doesn't support request \u2014 CKR_MECHANISM_INVALID\n\nHealth check: wh_Client_Echo() (wh_client.h:395-441) can be used as a ping before the first crypto operation to fail fast if the server is down, rather than failing silently in sign/verify.\n\nFix plan:\n1. Add wp11_wolfhsm_err_to_rv(int wh_err) \u2192 CK_RV mapping function in wp11_backend_wolfhsm.c\n2. Replace bare 'return -1' calls with return of the translated wolfHSM error code\n3. Optionally: call wh_Client_Echo in wp11_wolfhsm_slot_init to fail the slot open if server is unreachable",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:36Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:17:31Z"
+}

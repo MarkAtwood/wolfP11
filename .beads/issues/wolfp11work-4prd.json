@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4prd",
+  "title": "FSDIR tests: skips on env failure counted as passes",
+  "description": "test/wp11_test_fsdir.c returns 0 when mkdtemp() fails or setenv() fails, reporting zero failures. Identical problem to wolfP11-v4mh (flash test silent skips). All test skip paths must return a non-zero skip indicator so the harness can distinguish 'pass' from 'never ran'.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:02:16Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T01:22:45Z"
+}

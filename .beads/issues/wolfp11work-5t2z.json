@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-5t2z",
+  "title": "Hotplug drain loop does not distinguish CKR_NO_EVENT from CKR_GENERAL_ERROR",
+  "description": "test_hotplug_queue_overflow drains the ring with 'while (rv == CKR_OK) { C_WaitForSlotEvent }' then checks 'rv == CKR_NO_EVENT'. If C_WaitForSlotEvent returns CKR_GENERAL_ERROR (e.g. mutex lock failure in a stressed test environment), the loop exits but the check fails \u2014 the test reports FAIL rather than PASS or SKIP. This is not a silent pass, so the risk is a spurious failure rather than a missed bug. Fix: explicit check for the two expected loop-exit values (CKR_OK and CKR_NO_EVENT) with a dedicated assertion; anything else is a test infrastructure error.",
+  "status": "closed",
+  "priority": 4,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T06:09:31Z",
+  "updated_at": "2026-05-01T04:55:10Z",
+  "closed_at": "2026-04-11T06:20:04Z"
+}

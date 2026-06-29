@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ezfx",
+  "title": "atomic ref_count increment: RELAXED may be unsafe on weak-order arch",
+  "description": "wp11_soft_key_ref uses __atomic_fetch_add(&key->ref_count, 1, __ATOMIC_RELAXED). The comment says 'caller already holds a valid reference so no ordering constraint needed'. This reasoning is correct on x86/x86-64 (TSO model makes RELAXED effectively ACQ_REL). On weakly-ordered architectures (ARMv7, ARMv8, RISC-V, POWER) RELAXED provides no visibility guarantee: the increment may not be visible to a concurrent ACQ_REL decrement in another thread before that thread's release sequence completes. If thread A holds the last strong reference and calls free() while thread B has done the RELAXED increment but it has not propagated, thread A may free the key before B can use it. Fix: change the increment to __ATOMIC_ACQ_REL (same as the decrement) or at minimum __ATOMIC_RELEASE. Document the memory model requirement in the comment.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T15:04:30Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-10T15:08:51Z"
+}

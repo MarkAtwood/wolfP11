@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-2izd",
+  "title": "Token DB: no ATR-based identification for PIV cards on generic readers",
+  "description": "wp11_token_db.c matches tokens by USB VID/PID. A CAC/PIV card on a generic CCID reader (e.g., SCM SCR3310) is identified by the reader's VID/PID, not the card's. Lookup fails and falls back to generic PIV with WP11_QUIRK_SHORT_APDU, which caps response data at 256 bytes even for cards that support extended APDU. ATR-based identification (ISO 7816-3) would fix this. This is a design gap; filing as future work.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:57Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T01:50:07Z"
+}

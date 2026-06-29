@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-aag7",
+  "title": "Add tests for wp11_openpgp_authenticate and wp11_openpgp_get_ard",
+  "description": "test/wp11_test_openpgp.c covers wp11_openpgp_select, wp11_openpgp_verify_pw1, and wp11_openpgp_sign but is missing tests for wp11_openpgp_authenticate() (INTERNAL AUTHENTICATE with AUT subkey) and wp11_openpgp_get_ard() (GET DATA 006E retrieval). Both functions use the mock CCID transport so no hardware is required. Need to add APDU-vector tests for each, verifying the command bytes sent and response handling.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T20:14:45Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T20:37:23Z"
+}

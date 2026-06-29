@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-c9qp",
+  "title": "Test: P11K magic byte constants derived from implementation not spec",
+  "description": "test/wp11_test_keystore.c defines P11K_MAGIC_* with a comment 'from wp11_keystore.c line 5'. The test oracle is the code under test. If the implementation uses wrong magic bytes, the test still passes because both sides share the same source. Magic bytes must come from the spec or a committed independent fixture, not the implementation.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:47Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T01:28:15Z"
+}

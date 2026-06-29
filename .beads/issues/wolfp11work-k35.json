@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-k35",
+  "title": "C_GenerateKey: argument validation and AES/DES key gen",
+  "description": "C_GenerateKey returns CKR_FUNCTION_NOT_SUPPORTED without checking arguments. Need: (1) proper argument validation (session, mechanism, template, output pointer) to fix GenerateKeyInvalid; (2) AES/DES/3DES key generation with CKA_SENSITIVE, CKA_EXTRACTABLE, CKA_VALUE_LEN attribute support to fix TookanAttack A1/A3/A4/A5a/A5b, FindObjectSubset, SetLatchingAttribute, WrapUnwrap.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T01:19:21Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T01:25:40Z"
+}

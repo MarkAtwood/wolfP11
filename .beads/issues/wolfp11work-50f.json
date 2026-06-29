@@ -1,0 +1,21 @@
+{
+  "id": "wolfp11work-50f",
+  "title": "wolfHSM key discovery: enumerate server keys into g_keys[] at login",
+  "description": "After C_Login establishes the whClientContext, enumerate keys that are pre-provisioned on the wolfHSM server and create corresponding g_keys[] entries.\n\nWhat needs to be done:\n- Call wh_Client_KeyList (or equivalent) after successful C_Login to enumerate keys visible to the authenticated client\n- For each server key, allocate a wp11_wolfhsm_key_priv_t with the key ID, type, and size\n- Create a g_keys[] entry with backend_ops = &wp11_backend_wolfhsm_ops and key_priv pointing to the allocated struct\n- Map wolfHSM key type tags to CKK_RSA / CKK_EC and set sig_len_max accordingly\n- Key objects must be cleaned up (freed and slot cleared) at C_Logout\n\nDesign decisions:\n- Key labels: use the wolfHSM key label field if present; fall back to a hex key ID string\n- CKA_TOKEN=TRUE for all server keys (they are persistent on the server)\n- CKA_PRIVATE=TRUE for private keys; CKA_PRIVATE=FALSE for public keys if server exposes them separately\n- If wolfHSM does not provide an enumeration API, document the manual registration workaround (env var with key ID list)",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T02:52:52Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-09T03:27:46Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-s5x",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-08T19:53:36Z"
+    }
+  ]
+}

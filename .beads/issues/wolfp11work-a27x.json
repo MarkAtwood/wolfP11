@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-a27x",
+  "title": "Doc: slot_remove_keystore needs comment explaining no proto check",
+  "description": "slot_add_keystore checks the proto field when scanning the slot table to distinguish flash vs fsdir backends for a given path. slot_remove_keystore does not check proto \u2014 it removes the first slot matching the path. This asymmetry is intentional (paths are unique per backend type by construction) but is not documented at the call site. A future reader or reviewer will flag it as a potential bug or make a change that breaks the invariant. Fix: add a comment at the slot_remove_keystore scan loop explaining that proto is not checked because path uniqueness per backend type is a construction-time invariant, and document what would need to change if that assumption were ever relaxed.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T21:49:01Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T22:27:10Z"
+}

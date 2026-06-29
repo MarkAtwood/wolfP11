@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-hs85",
+  "title": "bug: keystore load uses open() without O_NOFOLLOW",
+  "description": "wp11_keystore.c:875 opens the keystore file with open(path, O_RDONLY) -- no O_NOFOLLOW. A symlink at the keystore path is silently followed, potentially loading an attacker-supplied file instead of the intended keystore. The write path (line 1345) correctly uses O_NOFOLLOW with a comment explaining why; the read path was missed. Fix: change to open(path, O_RDONLY | O_NOFOLLOW). Add a comment matching the write path: 'O_NOFOLLOW: refuse to follow a symlink at the keystore path to prevent an attacker from redirecting the load to a crafted file.'",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:42:25Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-10T23:59:19Z"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-kda",
+  "title": "MAINT: WP11_PIV_ERR_SW conflates transport truncation with card status error",
+  "description": "All PIV and OpenPGP functions return WP11_PIV_ERR_SW (or WP11_OPENPGP_ERR_SW) for both 'card returned unexpected status word' and 'response was too short to contain a status word'. A caller cannot distinguish transport corruption from a legitimate card error. Fix: add WP11_PIV_ERR_TRUNCATED and WP11_OPENPGP_ERR_TRUNCATED error codes, used when resplen < 2. Update the public headers and the response-length checks in all six affected functions. Document the distinction in the header.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:11:46Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-07T22:22:04Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:10Z"
+    }
+  ]
+}

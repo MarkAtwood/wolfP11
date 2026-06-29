@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-44h",
+  "title": "PBKDF2 iteration count cast to int is UB if iter > INT_MAX",
+  "description": "In wp11_keystore.c ~line 914, the iter field (uint32_t read from file) is validated against WP11_KEYSTORE_MIN_KDF_ITER (100000) but not against INT_MAX. It is then cast to int for wc_PBKDF2(). Values above 2^31-1 produce undefined behavior per C99 (signed overflow). In practice no one will store >2B iterations, but an adversarially crafted .p11k file could set this field to e.g. 0xC0000000 (3GB) which cast to int becomes negative, with wolfCrypt behavior undefined.\n\nFix: add 'if (iter > (uint32_t)INT_MAX) return WP11_KEYSTORE_ERR_PARAM;' before the cast. Add comment explaining why.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:04Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T16:07:38Z"
+}

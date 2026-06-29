@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-b3u0",
+  "title": "keystore write: enforce PIN length max",
+  "description": "wp11_keystore_create calls wc_PBKDF2(pin, (int)pinlen, ...) without checking that pinlen <= INT_MAX. If pinlen > INT_MAX, the cast to int is implementation-defined (UB in C99) and wolfCrypt may silently truncate or misinterpret the length. PKCS#11 2.40 \u00a711.5 sets CKK_VENDOR_DEFINED so the library sets the maximum; a reasonable cap is WOLFP11_CFG_MAX_PIN_LEN (or 256 bytes). Fix: add a check for pinlen > WOLFP11_CFG_MAX_PIN_LEN before the PBKDF2 call in wp11_keystore_create (mirror the check that already exists in wp11_keystore_open). Document the cap in wolfp11/wp11_settings.h.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T15:04:07Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-10T15:10:28Z"
+}

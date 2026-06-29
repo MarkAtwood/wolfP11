@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-dfv1",
+  "title": "PIN zeroization: replace memset with wc_ForceZero / wp11_zero",
+  "description": "src/cli/wp11_cli.c uses plain memset() to zero PIN buffers after use (lines 833, 943, 1060, 1142). Compiler can legally optimize away memset on a variable that is not subsequently read. wp11_zero (wrapping wc_ForceZero or explicit_bzero) already exists in the codebase. These PIN sites must use it.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:28Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:11:04Z"
+}

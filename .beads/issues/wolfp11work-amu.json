@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-amu",
+  "title": "fix: cmd_attest in CLI never calls C_Initialize or C_Finalize",
+  "description": "In src/cli/wp11_cli.c, cmd_attest calls wp11_piv_attest_slot() directly without calling C_Initialize(NULL) first and C_Finalize(NULL) after. Other CLI commands (cmd_list_tokens, cmd_list_keys, cmd_list_mechanisms) correctly bracket all PKCS#11 access with initialize/finalize.\n\nBad behavior: cmd_attest will fail with CKR_CRYPTOKI_NOT_INITIALIZED or access uninitialized global state, depending on whether another command ran first in the same process invocation.\n\nFix: Add C_Initialize(NULL) at the start of cmd_attest and C_Finalize(NULL) on all return paths, mirroring the pattern in cmd_list_keys.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:13:58Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:30:34Z"
+}

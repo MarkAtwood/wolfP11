@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-mh6",
+  "title": "slot_add_flash: path buffer mismatch allows silent truncation",
+  "description": "flash_scan_dir uses fpath[512] and skips paths >= 512 chars. slot_add_flash stores the path in flash_path[256], silently truncating at 255 chars with no error. A path between 256 and 511 chars passes the scan check but is stored truncated. Two paths that differ only after char 255 collide in the slot table. slot_remove_flash compares up to 255 chars so removal still works for non-colliding paths, but the inconsistency is fragile. Fix: validate path length against sizeof(flash_path) - 1 before storing, either in slot_add_flash (return failure) or in flash_scan_dir (skip with the same bound).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T16:07:32Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T16:21:53Z"
+}

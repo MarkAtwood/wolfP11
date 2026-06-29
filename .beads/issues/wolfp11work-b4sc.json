@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-b4sc",
+  "title": "C_Verify: missing memset before wc_HmacInit",
+  "description": "C_Sign correctly zeroes the Hmac struct (wolfP11-z3c7 pattern) before wc_HmacInit to prevent wc_HmacFree from dereferencing garbage pointers. C_Verify has the identical wc_HmacInit call but omits the memset. Any HMAC-verify call can crash via garbage-pointer dereference inside wc_HmacFree.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:00:43Z",
+  "updated_at": "2026-05-01T04:54:51Z",
+  "closed_at": "2026-04-11T01:06:08Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-0mx",
+  "title": "Research: PIV GET RESPONSE infinite loop on repeated SW 61 00",
+  "description": "In wp11_proto_piv.c lines 690-724, the GET RESPONSE chaining loop exits only when sw1 != SW1_MORE_DATA. A faulty token that repeatedly sends SW 61 00 (more data, zero bytes available) causes the loop to run indefinitely since zero bytes are accumulated each iteration. The only exit is when accum_len >= WP11_PIV_CERT_MAX_LEN, which requires actual data to be accumulating.\n\nResearch: verify the actual behavior when a zero-byte chunk is returned (does the accumulator grow? does the libusb timeout eventually fire?). Fix by detecting zero-byte chunks in the loop body and either failing or capping iterations.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:16Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T16:07:39Z"
+}

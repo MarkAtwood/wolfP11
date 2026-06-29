@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-chg3",
+  "title": "bug: CBOR skip integer underflow on buflen-pos subtraction",
+  "description": "RECLASSIFIED from P0 bug: the underflow does not occur in current code. cbor_read_head returning a positive head guarantees pos+head<=buflen (each branch checks this before returning), so buflen-pos-head cannot underflow. However, the formulation at line 410 depends on that two-level invariant, while lines 301/339 use a safer single-level form. This is now tracked as a style/consistency fix in wolfP11-ww0b. This bead is superseded by wolfP11-ww0b; keeping for audit trail.",
+  "status": "closed",
+  "priority": 0,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:49:46Z",
+  "updated_at": "2026-05-01T04:54:52Z",
+  "closed_at": "2026-04-10T23:10:32Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-ww0b",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-10T16:10:31Z"
+    }
+  ]
+}

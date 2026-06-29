@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ig1",
+  "title": "CKF_USER_PIN_COUNT_LOW not set after PIN failure",
+  "description": "After a failed C_Login with incorrect PIN, wolfP11 does not set CKF_USER_PIN_COUNT_LOW in C_GetTokenInfo token flags. PKCS#11 spec requires this flag to be set when the user's incorrect-PIN counter is within a threshold of the maximum lockout count.\n\nImpact: ReadOnlySessionTest.UserLoginWrongPIN (pkcs11test) fails on the CKF_USER_PIN_COUNT_LOW assertion.\n\nwolfP11 does not implement a PIN attempt counter or lockout. Adding this feature requires:\n1. Storing a retry counter in the keystore (or adjacent metadata)\n2. Incrementing on each failed C_Login call\n3. Setting CKF_USER_PIN_COUNT_LOW when counter approaches limit (e.g., 1-2 attempts remaining)\n4. Returning CKR_PIN_LOCKED when counter reaches max\n\nSoftHSM2 reference: SoftHSM2 passes this test.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T00:40:22Z",
+  "updated_at": "2026-05-01T04:55:08Z",
+  "closed_at": "2026-04-09T01:16:12Z"
+}

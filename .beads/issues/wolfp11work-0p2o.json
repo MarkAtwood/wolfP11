@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-0p2o",
+  "title": "Doc: HOWTO.md mkp11k.c snippet has unchecked fread return value",
+  "description": "The mkp11k.c example code in HOWTO.md section 4.2 contains: fread(der, 1, (size_t)dlen, f) without checking the return value. If the read is short (truncated file, I/O error), the code silently proceeds with partial data, producing a corrupt keystore. Fix: update the snippet to check fread's return value against dlen and handle the error. This is example code, but users copy it verbatim; unchecked return values in security-relevant sample code are a known source of real-world vulnerabilities.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T21:49:26Z",
+  "updated_at": "2026-05-01T04:55:07Z",
+  "closed_at": "2026-04-09T22:27:18Z"
+}

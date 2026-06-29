@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-hk6t",
+  "title": "Sort C_GetSlotList output alphabetically by keystore_path",
+  "description": "Currently C_GetSlotList returns slots in insertion order (whichever .p11k file was scanned first). Sort the output array by keystore_path so the mapping from slot ID to file is deterministic and alphabetical. Soft token (slot 0) always first. Hardware USB tokens (PIV/OpenPGP) next by VID/PID. Keystore-backed slots last, sorted by keystore_path. Implementation: collect slot IDs, qsort with comparator.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T20:49:50Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-09T21:13:20Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-zhx8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-09T13:49:58Z"
+    }
+  ]
+}

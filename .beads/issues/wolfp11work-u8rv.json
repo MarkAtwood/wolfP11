@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-u8rv",
+  "title": "doc: explain inline 0x7F49 two-byte tag parsing in piv_generate_key()",
+  "description": "wp11_proto_piv.c:933-945 -- the 0x7F49 tag is parsed inline with manual bounds checks rather than via tlv_expect(). A contributor will not know why. Add a brief comment: 'tlv_expect() handles only 1-byte tags; 0x7F49 is a two-byte constructed tag (ISO 7816-8 Table A.1), so it must be parsed manually here.' This prevents well-intentioned refactors that push it through tlv_expect() and silently break key generation.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:53Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-11T00:14:34Z"
+}

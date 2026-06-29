@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-a0oa",
+  "title": "wolfHSM backend: bare void* context pointer, no type safety",
+  "description": "wp11_backend.h stores the wolfHSM context as void* (comment: 'whClientContext* -- cast in implementation'). If this pointer is corrupted or a wrong pointer is stored, the cast to whClientContext* in the implementation will silently proceed with garbage. No magic number, type tag, or handle-table lookup guards the cast. Any memory corruption touching the backend struct leads to arbitrary reads/writes.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:01:04Z",
+  "updated_at": "2026-05-01T04:54:53Z",
+  "closed_at": "2026-04-11T01:22:46Z"
+}

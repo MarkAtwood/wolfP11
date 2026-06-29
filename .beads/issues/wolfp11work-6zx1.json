@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-6zx1",
+  "title": "Research: wolfHSM backend thread safety of shared client context",
+  "description": "wp11_wolfhsm_key_priv_t holds a borrowed pointer to the slot's whClientContext. Multiple concurrent C_Sign/C_Verify/C_Decrypt calls on the same slot will call wh_Client_EccSign, wh_Client_RsaFunction, etc., on the same context simultaneously with no mutex. Whether this is safe depends on whether wolfHSM's client context is thread-safe internally. Research: (1) Check wolfHSM client source for thread safety guarantees. (2) If not thread-safe, the fix is to hold g_lock across the full backend call (currently g_lock is released before the backend call in some paths) or add a per-slot mutex. (3) Document the finding either way.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T03:10:39Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-10T03:15:24Z"
+}

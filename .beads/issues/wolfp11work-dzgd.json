@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-dzgd",
+  "title": "C_DestroyObject: evict wolfHSM key on destroy",
+  "description": "free_key_priv() for the wolfHSM backend frees the local wp11_wolfhsm_key_priv_t struct but does not call wh_Client_KeyEvict. Keys generated via C_GenerateKeyPair (wh_Client_EccMakeCacheKey / wh_Client_RsaMakeCacheKey) therefore persist on the server until it evicts them by capacity or timeout. A well-behaved PKCS#11 implementation should evict the server-side key when C_DestroyObject is called, to avoid accumulating stale keys on resource-constrained HSM servers. Fix: call wh_Client_KeyEvict(ctx->client, key_priv->key_id) in free_key_priv() before freeing the struct, guarded so that pre-provisioned (NVM-persistent) keys are not accidentally evicted. This may require a flag in wp11_wolfhsm_key_priv_t to distinguish generated-here keys from pre-provisioned keys.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T19:24:34Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T19:36:19Z"
+}

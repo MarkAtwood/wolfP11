@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-uf1",
+  "title": "feat: C_DeriveKey ECDH for PIV 9D slot and soft token",
+  "description": "C_DeriveKey with CKM_ECDH1_DERIVE is the PKCS#11 mechanism for ECDH key agreement. The PIV slot 9D (key management) is specifically designated for this operation; without C_DeriveKey, slot 9D is dead code and wolfP11 cannot support TLS client-side key exchange, ECIES, or encrypted key transport protocols. This epic implements CKM_ECDH1_DERIVE for the PIV backend via the GENERAL AUTHENTICATE APDU in key-agreement mode, and for the soft backend via wc_ecc_shared_secret, returning the derived shared secret as a CKO_SECRET_KEY.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "epic",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T17:01:30Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T20:53:06Z"
+}

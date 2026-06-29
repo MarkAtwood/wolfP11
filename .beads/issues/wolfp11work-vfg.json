@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-vfg",
+  "title": "research: C_Verify accepts ulSignatureLen==0 without rejection",
+  "description": "In wp11_pkcs11.c C_Verify, the function checks pData and pSignature are not NULL but does NOT validate that ulSignatureLen is nonzero. PKCS#11 2.40 requires verification to fail gracefully on a zero-length signature. The backend verify() receives size_t ulSignatureLen=0 and may read uninitialized memory or misbehave depending on implementation.\n\nTrigger: Call C_VerifyInit (valid), then C_Verify with ulSignatureLen=0 and a valid non-NULL pSignature pointer.\nResearch needed: Confirm whether any backend's verify() is safe against zero-length signatures, or whether it will dereference past the end of a zero-length buffer. If unsafe, add: if (ulSignatureLen == 0) { rv = CKR_SIGNATURE_INVALID; goto cleanup; }",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:13:54Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:38:27Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-4kw4",
+  "title": "Soft backend: add CKM_RSA_PKCS_OAEP",
+  "description": "wolfCrypt has wc_RsaPublicEncrypt_ex with WC_RSA_OAEP_PAD but wolfP11 does not expose CKM_RSA_PKCS_OAEP through C_Encrypt/C_Decrypt. Implement OAEP encrypt and decrypt in wp11_backend_soft.c, add CKM_RSA_PKCS_OAEP to g_mechs[], and add the mechanism info case to C_GetMechanismInfo.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T20:05:14Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T21:12:05Z"
+}

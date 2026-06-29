@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-56f",
+  "title": "TEST: wp11_backend_soft_ops has zero test coverage",
+  "description": "src/wp11_backend_soft.c: soft_sign, soft_verify, and soft_decrypt are never called by any test. The PKCS#11 tests cannot exercise the soft backend because C_CreateObject and C_GenerateKeyPair both return CKR_FUNCTION_NOT_SUPPORTED; there is no path to add keys to the soft token through the PKCS#11 API. wp11_backend_soft_ops is exported but dead from a test perspective. The flash backend sign roundtrip test (test_flash_pkcs11_sign_roundtrip) correctly uses an independent oracle; the soft backend needs an equivalent. Fix: add wp11_test_backend_soft.c that calls soft_sign/soft_verify/soft_decrypt directly (bypassing the PKCS#11 layer), with independent oracles: for ECDSA, generate a key with wolfCrypt, sign with the soft backend, verify with a direct wc_ecc_verify_hash call on the original key; for RSA, sign with the soft backend, verify with wc_RsaSSL_Verify. Do NOT sign-then-verify through the same path. Per BUILD.md test integrity rules, these must be cross-validated, not self-referential.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:34:35Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T06:10:53Z"
+}

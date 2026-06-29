@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-v3c",
+  "title": "Add security hardening flags to Makefile",
+  "description": "The Makefile is missing standard security hardening flags that every crypto library should carry:\n\nMissing from CFLAGS:\n- -fstack-protector-strong (stack canaries)\n- -D_FORTIFY_SOURCE=2 (fortified libc calls)\n- -O2 (required for _FORTIFY_SOURCE to work)\n- -Wformat=2 -Wformat-security (format string bugs)\n\nMissing from LDFLAGS:\n- -Wl,-z,relro (read-only relocations)\n- -Wl,-z,now (eager binding / full RELRO)\n- -Wl,-z,noexecstack (NX stack)\n\nFor the CLI binary specifically: -fPIE / -pie (position-independent executable).\n\nAdd each flag with an inline comment explaining what it does and why it matters for a crypto library. Check for GCC/clang compatibility (some flags differ).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:21Z",
+  "updated_at": "2026-05-01T04:55:01Z",
+  "closed_at": "2026-04-09T16:07:38Z"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "wolfp11work-44s",
+  "title": "hp-4: tests for slot table, hotplug arrival/departure, C_WaitForSlotEvent",
+  "description": "Add to test/wp11_test_pkcs11.c: test_slot_table_count (soft slot always slot 0), test_slot_info_soft_token (CKF_TOKEN_PRESENT), test_wait_for_slot_event_no_event (CKF_DONT_BLOCK returns CKR_NO_EVENT), test_hotplug_arrival_mock (inject arrival, verify GetSlotList count increases, verify CKF_TOKEN_PRESENT on new slot), test_hotplug_departure_mock (inject departure, verify CKF_TOKEN_PRESENT cleared, verify open sessions invalidated). Uses WOLFP11_CFG_TEST wp11_test_inject_hotplug() hook.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:58:34Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-07T23:07:27Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-125",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:58:38Z"
+    },
+    {
+      "depends_on_id": "wolfp11work-9nd",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:58:39Z"
+    }
+  ]
+}

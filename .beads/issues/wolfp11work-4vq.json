@@ -1,0 +1,14 @@
+{
+  "id": "wolfp11work-4vq",
+  "title": "ci: integrate google/pkcs11test against soft backend",
+  "description": "google/pkcs11test (github.com/google/pkcs11test, Apache-2.0) is the most comprehensive open-source PKCS#11 conformance suite available. It covers library/slot/session/object management, key generation, sign/verify, encrypt/decrypt, digests, and dual-function mechanisms against the PKCS#11 v2.2 spec.\n\nWhy: The review identified several PKCS#11 compliance gaps (wolfP11-13f, wolfP11-uu5, wolfP11-drz, wolfP11-w2m) that a conformance suite would have caught. Without this, new compliance regressions will only be found in field use or external review.\n\nWhat to do:\n1. Clone google/pkcs11test (archived Jan 2025, Apache-2.0 \u2014 functional but unmaintained)\n2. Build libwolfp11.so with WOLFP11_CFG_SOFT_BACKEND and WOLFP11_SOFT_KEYSTORE_PATH pointing to a temp dir\n3. Run pkcs11test against libwolfp11.so; record baseline pass/fail\n4. Add passing tests to CI; failing tests become new beads\n5. Use SoftHSM2 as a cross-reference oracle: same test, compare return codes\n\nCaution: README warns not to run against a token with real keys \u2014 some tests can lock or erase. Soft backend only in CI.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:35:26Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:41:37Z",
+  "notes": "Makefile target: make USBFLASH=1 pkcs11test (requires pkcs11-tool for init-pin step). Baseline after wolfP11-4ez fix: 140/330 pass (was 63/330). SoftHSM2 oracle: 236/330. Compliance bugs filed: wolfP11-t5u (login check for session objects blocks SignTest, KeyPairTest - ~20 failures), wolfP11-ig1 (CKF_USER_PIN_COUNT_LOW), wolfP11-a2p (C_SeedRandom wrong error), wolfP11-8s1 (C_CreateObject data objects). Feature gap failures (~120): Ciphers (DES/3DES/AES-ECB/CBC), Digests, HMACs, Duals, WrapUnwrap, SignRecover. Run: PKCS11TEST_DIR=~/pkcs11test make USBFLASH=1 pkcs11test"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-zeh",
+  "title": "CCID dwLength integer overflow before size_t cast",
+  "description": "In wp11_ccid.c ~line 373, the check 'frame_in_len < (CCID_HEADER_LEN + resp_dw_length)' adds a uint32_t from untrusted card data to a constant before the size_t cast. On 32-bit targets, if resp_dw_length = 0xFFFFFFF6 and CCID_HEADER_LEN=10, the sum wraps to 0 and the bounds check passes, allowing memcpy to read far past the receive buffer. A malicious or buggy token can trigger this.\n\nFix: check overflow before the addition:\n  if (resp_dw_length > SIZE_MAX - CCID_HEADER_LEN || frame_in_len < CCID_HEADER_LEN + resp_dw_length)\n\nAdd inline comment explaining the overflow guard.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:31:41Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-09T16:07:36Z"
+}

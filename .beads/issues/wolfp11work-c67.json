@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-c67",
+  "title": "fix: PIV response data not length-validated before BER-TLV parsing",
+  "description": "wp11_piv_sign() and wp11_piv_ecdh() call ber_len_decode() on the raw CCID response buffer (after stripping SW). If a misbehaving token returns a truncated or malformed response body (but still SW 9000), the BER-TLV parser receives garbage data. ber_len_decode has internal bounds checking, so it will return an error \u2014 but the caller must handle that error, and the defensive chain must be complete.\n\nSpecifically in wp11_piv_sign (lines ~395-430):\n- The 0x7C wrapper tag is parsed with ber_len_decode\n- The 0x82 inner tag is parsed\n- The signature bytes are copied to caller's buffer\n\nA token that returns SW 9000 with an empty body (0 bytes before SW) will cause ber_len_decode to be called with len=0, which should return an error \u2014 confirm this is handled and returns WP11_PIV_ERR_PARSE, not WP11_PIV_ERR_TRUNCATED or a silent buffer read.\n\nAdditional paranoia:\n1. After GENERAL AUTHENTICATE response, validate: outer tag == 0x7C (DAT), inner tag == 0x82 (response), before calling ber_len_decode\n2. Validate: declared inner length + BER-TLV overhead == total response length (detects padding or truncation)\n3. Validate: signature length is within expected bounds for the algorithm (ECDSA P-256: 8-72 bytes; RSA-2048: exactly 256 bytes)\n4. Add static_assert or compile-time check that PIV_APDU_MAX_RESP >= max possible GENERAL AUTHENTICATE response\n\nAdd inline comments at each validation step citing the SP 800-73-4 Table 13 structure being validated.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:01:52Z",
+  "updated_at": "2026-05-01T04:54:55Z",
+  "closed_at": "2026-04-08T23:21:55Z"
+}

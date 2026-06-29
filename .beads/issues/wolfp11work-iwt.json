@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-iwt",
+  "title": "DOC: add inline comment to 512-byte RSA verify stack buffer documenting max key size",
+  "description": "src/wp11_backend_usb_flash.c line ~193: uint8_t out[512] in flash_verify is sized for RSA-4096 (4096/8=512 bytes). There is no comment explaining this relationship. A contributor adding support for a hypothetically larger key would overflow the stack buffer silently. Fix: add comment: '/* RSA-4096 output is 512 bytes \u2014 the maximum supported RSA key size. If larger keys are added, this buffer must grow. */' Also: consider whether wp11_keystore.h should document the maximum supported RSA key size as a contract, or whether wp11_keystore_create should reject keys larger than 4096 bits.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:04:16Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-08T05:18:31Z"
+}

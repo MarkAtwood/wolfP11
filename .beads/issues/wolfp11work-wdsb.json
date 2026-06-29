@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-wdsb",
+  "title": "Soft backend: add CKM_EDDSA (Ed25519)",
+  "description": "wolfCrypt has wc_ed25519_sign_msg and wc_ed25519_verify_msg but wolfP11 does not expose CKM_EDDSA. Implement Ed25519 sign and verify in wp11_backend_soft.c, add CKM_EDDSA to g_mechs[], add CKK_EC_EDWARDS key type support, and add the mechanism info case to C_GetMechanismInfo.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T20:05:16Z",
+  "updated_at": "2026-05-01T04:55:06Z",
+  "closed_at": "2026-04-10T20:33:25Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ctoq",
+  "title": "test: add concurrent-session test for flash keystore",
+  "description": "No test exercises two sessions on the same flash token simultaneously. This matters because keystore read/write and session state are not obviously synchronized. Add a test: open two sessions on the same flash token, perform C_Sign from both concurrently (or at least interleaved), verify both signatures with independent oracles. The goal is to expose race conditions in keystore file I/O or session state shared between handles. Without this, concurrent-use bugs would only surface in production.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T22:50:31Z",
+  "updated_at": "2026-05-01T04:54:58Z",
+  "closed_at": "2026-04-11T00:29:35Z"
+}

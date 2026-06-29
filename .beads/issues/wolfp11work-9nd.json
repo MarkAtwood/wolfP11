@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-9nd",
+  "title": "USB hotplug: detect token insertion and removal",
+  "description": "wolfP11 currently enumerates USB slots once at C_Initialize and hardcodes CKF_TOKEN_PRESENT. C_WaitForSlotEvent returns CKR_FUNCTION_NOT_SUPPORTED. This is wrong for desktop/interactive use where tokens are hot-swapped.\n\nWhat needs to be done:\n- Register a libusb_hotplug_register_callback at C_Initialize time to track arrival and departure of known VID/PID pairs from the token database\n- On arrival: add a new slot to g_slots[], open the CCID context, set CKF_TOKEN_PRESENT\n- On departure: mark the slot's token absent (clear CKF_TOKEN_PRESENT), close the CCID context, release the slot\n- C_WaitForSlotEvent: implement blocking (CKF_DONT_BLOCK not set) and polling (CKF_DONT_BLOCK set) modes using the libusb hotplug event queue\n- C_GetSlotInfo must reflect live token-present state, not a snapshot from init time\n- Thread safety: hotplug callback fires on a libusb event thread; slot state updates must be protected by g_lock\n\nScope: local USB devices only (libusb LIBUSB_HOTPLUG_ENUMERATE covers devices already present at init).",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "feature",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:51:50Z",
+  "updated_at": "2026-05-01T04:55:04Z",
+  "closed_at": "2026-04-07T23:07:27Z"
+}

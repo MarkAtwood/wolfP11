@@ -1,0 +1,12 @@
+{
+  "id": "wolfp11work-aqdx",
+  "title": "Unify FLASH/FSDIR backends: shared ops, merged struct, alphabetical slots",
+  "description": "The USB flash and FSDIR backends share identical sign/verify/decrypt logic and keystore format but duplicate ~300 LOC. The g_slots struct has separate flash_path/fsdir_path and keystore/fsdir_keystore fields that can be collapsed. Slot ordering is insertion-order (nondeterministic). This epic tracks three improvements: (1) extract shared keystore ops into wp11_backend_keystore.c, removing duplication; (2) collapse flash_path+fsdir_path->keystore_path and keystore+fsdir_keystore->keystore in g_slots; merge slot_add_flash/slot_add_fsdir into slot_add_keystore; (3) sort C_GetSlotList output alphabetically by keystore_path for predictable slot-to-file mapping.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "epic",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T20:49:35Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T21:13:20Z"
+}

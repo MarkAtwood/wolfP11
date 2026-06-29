@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-rxn",
+  "title": "BUG: global session/key arrays have no mutex \u2014 unsafe for concurrent callers",
+  "description": "PKCS#11 2.40 Section 6.7.2 requires implementations to be thread-safe when CKF_OS_LOCKING_OK is set or when OS primitives are provided. g_sessions[], g_keys[], and g_initialized in wp11_pkcs11.c are unprotected globals. Two threads calling C_OpenSession concurrently can claim the same slot. C_Login iterates all sessions without a lock, racing with concurrent C_Sign calls. Fix: wrap all access to g_sessions/g_keys/g_initialized with a single global mutex. Document the locking model in a comment at the top of wp11_pkcs11.c.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:10:58Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-07T22:36:49Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:07Z"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-dav",
+  "title": "MAINT: soft key lifetime not managed \u2014 C_DestroyObject/C_Finalize leak wp11_soft_key_t",
+  "description": "wp11_pkcs11.c stores void *key_priv pointing to a malloc'd wp11_soft_key_t. C_DestroyObject() returns CKR_FUNCTION_NOT_SUPPORTED without freeing the key. C_Finalize() clears the session table but does not iterate g_keys[] and call wp11_soft_key_free(). Long-running applications that create many keys leak. Fix: implement C_DestroyObject to call wp11_soft_key_free() and clear the key slot. In C_Finalize, iterate g_keys[] and free any in_use keys. Document ownership: the PKCS#11 layer owns key_priv and is responsible for its lifetime.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:11:32Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-07T22:22:04Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:09Z"
+    }
+  ]
+}

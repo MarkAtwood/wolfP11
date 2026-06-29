@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-g5j3",
+  "title": "bug: CLI strtoul missing range check and piv_slot uninitialized",
+  "description": "Two related CLI bugs in wp11_cli.c: (1) strtoul() is called for slot IDs in cmd_attest, cmd_list_keys, cmd_list_mechanisms without checking errno==ERANGE or that the result is within [0, WOLFP11_CFG_MAX_SLOTS). Input 'wp11 list-mechanisms 99999999999' silently wraps or passes an invalid slot to the PKCS#11 layer. (2) piv_slot in cmd_attest is declared but not initialized; if the slot-string if/else chain is ever refactored and the else-return removed, the uninitialized value reaches wp11_piv_attest_slot. Fix: (1) add bounds check after strtoul; (2) initialize piv_slot=0 at declaration.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T16:58:28Z",
+  "updated_at": "2026-05-01T04:55:00Z",
+  "closed_at": "2026-04-09T17:42:46Z"
+}

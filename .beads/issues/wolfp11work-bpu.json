@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-bpu",
+  "title": "BUG: C_Finalize frees g_lock before joining the USB event thread",
+  "description": "wp11_pkcs11.c:1247-1259: C_Finalize calls wc_FreeMutex(&g_lock) (step A) then pthread_join(g_event_thread) (step B). The event thread's hotplug_cb calls wc_LockMutex(&g_lock) directly \u2014 it does not check g_lock_ready. If a hotplug event fires between step A and step B, hotplug_cb calls pthread_mutex_lock on a destroyed mutex, which is undefined behavior per POSIX. The existing g_lock_ready=0 guard only protects the WP11_LOCK() macro used by C_* functions; it is not checked by hotplug_cb. The window is narrow (microseconds, requires simultaneous USB plug event) but technically UB. Fix options: (1) join the event thread before freeing g_lock, which requires solving the deadlock risk the current comment describes; or (2) move wc_FreeMutex after pthread_join; or (3) make hotplug_cb check g_lock_ready before calling wc_LockMutex (requires atomic read of the flag). Recommend option 2: move wc_FreeMutex to after pthread_join, since g_lock is not accessed by the join call itself.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:34:05Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T05:42:51Z"
+}

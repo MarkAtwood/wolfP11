@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-drz",
+  "title": "fix: C_Login silently ignores CKU_SO userType",
+  "description": "In wp11_pkcs11.c, C_Login only handles userType==CKU_USER (PIV login path). There is no else-if or else for CKU_SO (Security Officer). If C_Login is called with CKU_SO, execution falls through without updating session state (s->logged_in stays 0), but the function may return CKR_OK depending on the fall-through path.\n\nPKCS#11 2.40 \u00a711.16 requires C_Login(CKU_SO) to either authenticate the SO or return an appropriate error (CKR_PIN_INCORRECT, CKR_USER_TYPE_INVALID, etc.).\n\nImpact: Any application that tries SO login (e.g., for PIN management) gets a silent no-op or incorrect return code, then proceeds thinking it is logged in as SO when it is not.\n\nFix: Add explicit handling for CKU_SO: either implement SO login if the backend supports it, or return CKR_USER_TYPE_INVALID with a comment explaining why SO login is not supported on this device type.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:14:17Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-09T00:02:00Z"
+}

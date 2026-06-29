@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-nnv",
+  "title": "BUG: C_Initialize leaks g_hotplug_mutex if pthread_cond_init fails",
+  "description": "wp11_pkcs11.c:1122-1127: if pthread_mutex_init succeeds but pthread_cond_init fails, the code executes 'goto cleanup' which only calls WP11_UNLOCK() on g_lock, without calling pthread_mutex_destroy(&g_hotplug_mutex). g_hotplug_mutex is therefore leaked. On the next C_Initialize call (after C_Finalize), pthread_mutex_init is called again on the same memory, which on some POSIX implementations reinitializes over the previously allocated mutex struct. Fix: when the compound init condition fails, check whether the first part succeeded and destroy accordingly. Pattern: int mtx_ok = (pthread_mutex_init(&g_hotplug_mutex, NULL) == 0); if (!mtx_ok || pthread_cond_init(&g_hotplug_cond, NULL) != 0) { if (mtx_ok) pthread_mutex_destroy(&g_hotplug_mutex); rv = CKR_GENERAL_ERROR; goto cleanup; }",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:34:00Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T05:42:51Z"
+}

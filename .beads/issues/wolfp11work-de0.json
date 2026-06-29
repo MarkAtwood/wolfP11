@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-de0",
+  "title": "wp11_backend.h: callback contracts undocumented (null, ownership, error codes)",
+  "description": "wolfp11/wp11_backend.h defines the backend dispatch table (wp11_backend_ops_t) with sign, verify, decrypt, derive, free_key_priv callbacks. Several contracts are undocumented:\n\n1. free_key_priv=NULL: comment says 'Non-NULL means backend expects this called on destroy' but does not state what caller must do when NULL (leak? backend owns it?). Add explicit ownership table.\n\n2. Error codes: callbacks return int (0=success, negative=error) but do not state whether error values are backend-specific or CKR_* values. Add: 'Returns 0 on success, negative implementation-defined error on failure. The PKCS#11 layer maps these to CKR_* values via wp11_backend_err_to_ckr().'\n\n3. derive=NULL: document that NULL means unsupported, not an error to be logged.\n\nThese gaps will cause incorrect implementations from future contributors.",
+  "status": "closed",
+  "priority": 4,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T15:32:53Z",
+  "updated_at": "2026-05-01T04:55:10Z",
+  "closed_at": "2026-04-09T16:07:41Z"
+}

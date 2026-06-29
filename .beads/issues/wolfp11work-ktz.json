@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ktz",
+  "title": "feat: C_GenerateKeyPair for PIV hardware token (on-device key generation)",
+  "description": "C_GenerateKeyPair is the correct in-band path when a PIV hardware token generates a key on-device: the application calls C_GenerateKeyPair, wolfP11 sends the GENERATE ASYMMETRIC KEY PAIR APDU (INS 0x47) to the token, and the key never leaves the hardware. This is the PIV-native flow and cannot be replaced by a CLI tool because the application drives it. Scope: PIV backend only (YubiKey 5, NitroKey HSM 2). Supported mechanisms: CKM_EC_KEY_PAIR_GEN (P-256, P-384) and CKM_RSA_PKCS_KEY_PAIR_GEN (2048-bit). The soft and flash backends are explicitly out of scope: those keys are provisioned out-of-band via wp11 keystore import-key (wolfP11-ctv).",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "epic",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T17:01:12Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T19:32:06Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-ctv",
+  "title": "feat: wp11 keystore subcommands (create, import-key, remove-key, pin-change, cert-add, info, list)",
+  "description": "The .p11k keystore format is fully implemented (AES-256-GCM, PBKDF2, CBOR, mlock) but there is no user-facing tool to create or manage keystore files. A user who wants to use the USB flash keystore feature must write C code to call wp11_keystore_create directly. This epic adds the following subcommands to the CLI, making the flash keystore feature fully self-contained:\n\n- wp11 keystore create --key <file> --label <str> --output <path>  (PIN prompted; supports multiple --key/--label pairs)\n- wp11 keystore import-key <path> --key <file> --label <str>       (decrypt, append, re-encrypt with fresh nonce; atomic rename)\n- wp11 keystore remove-key <path> --label <str> | --id <hex>       (zeroize removed key bytes before re-encrypt)\n- wp11 keystore pin-change <path>                                   (decrypt, re-encrypt with fresh salt+nonce)\n- wp11 keystore cert-add <path> --label <str> --cert <file>        (store CKO_CERTIFICATE DER alongside key entry)\n- wp11 keystore info <path>                                         (print header fields without PIN: version, KDF params, entry count)\n- wp11 keystore list <path>                                         (PIN required; list labels, IDs, key types)\n\nAll mutating operations write to a temp file then rename for atomicity. All operations zeroize sensitive material before exit. Minimum PIN length: 6 characters, enforced at create and pin-change.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "epic",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T17:01:10Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T18:55:20Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-h53y",
+  "title": "bug: C_SignInit and C_VerifyInit missing CKR_OPERATION_ACTIVE guard",
+  "description": "wp11_pkcs11.c: C_EncryptInit (line ~5111), C_DecryptInit (~5737), and C_DigestInit (~6288) all check 'if (s->OPERATION_active) return CKR_OPERATION_ACTIVE' before activating. C_SignInit (~6562) and C_VerifyInit (~6828) are missing this check. Calling C_SignInit while any other operation is active clobbers shared session state without returning an error, leaving the session in a corrupt state. PKCS#11 spec section 11.6 requires CKR_OPERATION_ACTIVE if another operation of the same type is already active. Fix: add the same guard to both functions, checking all active flags (sign, verify, encrypt, decrypt, digest) before activating the new operation.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-10T23:42:30Z",
+  "updated_at": "2026-05-01T04:54:54Z",
+  "closed_at": "2026-04-10T23:58:50Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-wzea",
+  "title": "const_cast UB in flash_test_make_rsa_keystore_from_der",
+  "description": "test/wp11_test_pkcs11.c line ~1275: 'entry.der_bytes = (uint8_t *)(uintptr_t)der;' casts a const uint8_t* to mutable uint8_t* and stores it in wp11_key_entry_t. wp11_keystore_create currently only reads der_bytes, so the UB doesn't manifest, but the cast is latent UB if the encoding path ever adds a write. Fix: either (a) change wp11_key_entry_t.der_bytes to const uint8_t* and propagate through encode_cbor_payload, or (b) in the test helper, allocate a local mutable copy of the DER and use that. Option (b) is simpler since this is test-only code.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T02:25:08Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-11T03:15:19Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-rwg",
+  "title": "fix: CLI snprintf truncation not detected \u2014 checks < 0, not >= sizeof",
+  "description": "In src/cli/wp11_cli.c, two snprintf calls check return < 0 to detect truncation. This is wrong. Per C99 \u00a77.19.6.5, snprintf returns the number of characters that would have been written had the buffer been large enough (not counting NUL). Truncation is indicated by return >= buffer_size, not by a negative return. A negative return only indicates an encoding error.\n\nIssue 1 (~line 640):\n  if (snprintf(tmppath, sizeof(tmppath), \"%s.tmp\", dst) < 0)\nShould be:\n  if (snprintf(tmppath, sizeof(tmppath), \"%s.tmp\", dst) >= (int)sizeof(tmppath))\nA path longer than sizeof(tmppath)-5 silently truncates, producing a corrupt temp file path that is different from the intended target.\n\nIssue 2 (~line 381-384), percent-encoding loop:\n  written = snprintf(id_pct + pos, sizeof(id_pct) - pos, \"%%%02X\", id_buf[k]);\n  if (written > 0) pos += written;\nShould be:\n  if (written < 0 || written >= (int)(sizeof(id_pct) - pos)) { /* truncation error */ break; }\nIf the remaining buffer is too small, snprintf truncates the %XX sequence. The check 'written > 0' then adds the truncated (wrong) count to pos, corrupting the rest of the percent-encoded string.\n\nFix: Replace all snprintf return checks in the CLI: use (ret < 0 || ret >= (int)sizeof(buf)) as the truncation test. Add a comment: 'snprintf returns number of chars that would be written; >= bufsize means truncation, not < 0.'",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T23:07:02Z",
+  "updated_at": "2026-05-01T04:55:02Z",
+  "closed_at": "2026-04-08T23:54:20Z"
+}

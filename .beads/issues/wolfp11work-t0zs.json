@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-t0zs",
+  "title": "Doc: HOWTO.md missing mlock failure / RLIMIT_MEMLOCK operator guidance",
+  "description": "The keystore load path (wp11_keystore.c) treats mlock failure as fatal \u2014 it returns WP11_KEYSTORE_ERR_MLOCK rather than continuing with unlocked memory. This is intentional for security. However, HOWTO.md does not document this behavior. In containers and restricted environments, the default RLIMIT_MEMLOCK is often very low (64 KB on many distros), which will cause keystore load to silently fail if the key material size exceeds the limit. Operators will see a cryptic login failure with no indication of the root cause. Fix: add a section in HOWTO.md (or the deployment/container section) documenting: (1) mlock failure is fatal by design, (2) the symptom is C_Login returning CKR_GENERAL_ERROR or similar, (3) operators must raise RLIMIT_MEMLOCK (ulimit -l or CAP_IPC_LOCK in containers), (4) minimum required limit calculation based on keystore size.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-09T21:49:20Z",
+  "updated_at": "2026-05-01T04:54:59Z",
+  "closed_at": "2026-04-09T22:27:12Z"
+}

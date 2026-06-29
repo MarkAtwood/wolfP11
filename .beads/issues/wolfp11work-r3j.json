@@ -1,0 +1,20 @@
+{
+  "id": "wolfp11work-r3j",
+  "title": "MAINT: add named constants for USB class 0x0B and endpoint direction bit 0x80",
+  "description": "wp11_ccid.c uses 0x0Bu (CCID USB class code) and 0x80u (IN endpoint direction bit) as raw magic numbers. A contributor copying this code without USB spec knowledge would not know what these mean. Fix: add at top of wp11_ccid.c: #define WP11_USB_CLASS_CCID 0x0Bu  /* USB class code for CCID/smartcard readers */ and #define WP11_USB_EP_DIR_IN 0x80u  /* USB endpoint address IN direction bit */. Use these constants in the endpoint discovery loop.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-07T22:12:01Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-07T22:22:06Z",
+  "dependencies": [
+    {
+      "depends_on_id": "wolfp11work-8n8",
+      "dep_type": "parent_child",
+      "created_by": "Mark Atwood",
+      "created_at": "2026-04-07T15:12:11Z"
+    }
+  ]
+}

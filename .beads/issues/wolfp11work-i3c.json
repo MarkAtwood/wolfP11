@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-i3c",
+  "title": "pkcs1_v15_unpad_decrypt is not constant-time",
+  "description": "The loop in pkcs1_v15_unpad_decrypt (wp11_backend_wolfhsm.c) exits early when it finds the 0x00 separator byte. Execution time varies with plaintext length. Relevant question: does this constitute an exploitable Bleichenbacher-style padding oracle when (a) the RSA operation itself is server-side and (b) the timing of the client-side unpadding is not exposed over a network boundary? Standard guidance says constant-time unpadding always, but the practical attack surface here is different from a TLS server. Research needed: characterize actual attacker model for a PKCS#11 library used in embedded/secure systems.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T21:27:17Z",
+  "updated_at": "2026-05-01T04:55:03Z",
+  "closed_at": "2026-04-08T21:37:04Z"
+}

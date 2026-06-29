@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-b57",
+  "title": "fix: C_* functions return CKR_FUNCTION_NOT_SUPPORTED before checking g_initialized",
+  "description": "pkcs11test Init.Uninitialized, Slot.NoInit confirm: when wolfP11 is not initialized, calling C_EncryptInit or C_InitToken returns CKR_FUNCTION_NOT_SUPPORTED instead of CKR_CRYPTOKI_NOT_INITIALIZED.\n\nPKCS#11 2.40 \u00a711.4: every C_* function except C_Initialize must return CKR_CRYPTOKI_NOT_INITIALIZED if the library has not been initialized. The initialized check must come BEFORE the 'function supported?' check.\n\nRoot cause: the WP11_LOCK macro (or equivalent guard) checks g_initialized and returns CKR_CRYPTOKI_NOT_INITIALIZED, but functions that return CKR_FUNCTION_NOT_SUPPORTED may be doing so before the lock/initialized check.\n\nFix: Move the g_initialized guard to be the first check inside every C_* function stub that currently returns CKR_FUNCTION_NOT_SUPPORTED, or ensure the WP11_LOCK/WP11_REQUIRE_INIT macro is applied uniformly.",
+  "status": "closed",
+  "priority": 1,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T22:39:17Z",
+  "updated_at": "2026-05-01T04:54:56Z",
+  "closed_at": "2026-04-08T23:29:32Z"
+}

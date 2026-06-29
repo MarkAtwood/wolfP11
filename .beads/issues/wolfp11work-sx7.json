@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-sx7",
+  "title": "RESEARCH: cbor_skip integer overflow (size_t)val*2u on 32-bit targets",
+  "description": "src/wp11_keystore.c line ~392: for MAP type, the skip loop iterates (size_t)val * 2u times. val is uint64_t decoded from the CBOR header. On a 32-bit platform (size_t=32bit), if val > SIZE_MAX/2 the multiplication wraps and the loop iterates far fewer times than the actual map entry count. Since cbor_skip runs on a fully AES-GCM authenticated buffer the attacker scenario requires defeating the encryption first. The practical upper bound is WP11_KEYSTORE_MAX_CT_LEN=512KB which cannot hold 2^31 map entries so this is not exploitable, but it is technically UB. Research: confirm the maximum val that can appear in a valid keystore CBOR payload; confirm whether an overflow is reachable given WP11_KEYSTORE_MAX_CT_LEN. Fix if reachable: add overflow guard before the multiplication. Add inline comment documenting the reasoning regardless.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-08T05:03:25Z",
+  "updated_at": "2026-05-01T04:55:09Z",
+  "closed_at": "2026-04-08T05:24:08Z"
+}

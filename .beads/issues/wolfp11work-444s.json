@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-444s",
+  "title": "RSA-OAEP test: encrypt and decrypt oracles share code paths",
+  "description": "test/wp11_test_pkcs11.c test_soft_rsa_oaep uses wc_RsaPublicEncrypt_ex() as the oracle for Part A and wp11_test_soft_rsa_oaep_decrypt() as the oracle for Part B. Both oracles live in the same codebase and share key-handling paths. If both have the same bug, the cross-validation passes. The oracle for RSA-OAEP should be an independent implementation (e.g., OpenSSL EVP_PKEY_encrypt) or known test vectors from NIST SP 800-56B.",
+  "status": "closed",
+  "priority": 2,
+  "issue_type": "task",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T01:02:17Z",
+  "updated_at": "2026-05-01T04:54:57Z",
+  "closed_at": "2026-04-11T01:49:45Z"
+}

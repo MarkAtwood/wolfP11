@@ -1,0 +1,13 @@
+{
+  "id": "wolfp11work-mqtt",
+  "title": "RSA-PSS verify uses default salt_len=digest_len; no API for non-default",
+  "description": "wp11_soft_key_rsa_pss_verify() calls wc_RsaPSS_VerifyCheck without a salt_len parameter. wolfCrypt defaults to salt_len=hash_len per PKCS#1 v2.2 RFC 8017 default. PKCS#11 CK_RSA_PKCS_PSS_PARAMS has a sLen field; if a caller specifies a non-default salt length (e.g., salt_len=0 for deterministic PSS, or salt_len=key_len-digest_len-2 for maximum), the current function will reject valid signatures. This is a design gap, not a bug for the default case. Fix: add word32 salt_len parameter to wp11_soft_key_rsa_pss_sign/verify; use wc_RsaPSS_Sign_ex/wc_RsaPSS_VerifyCheck_ex variants that accept salt_len. Add inline doc: document that current callers pass WC_RSA_PSS_SALT_LEN_DEFAULT.",
+  "status": "closed",
+  "priority": 3,
+  "issue_type": "bug",
+  "assignee": "Mark Atwood",
+  "created_by": "Mark Atwood",
+  "created_at": "2026-04-11T02:25:25Z",
+  "updated_at": "2026-05-01T04:55:05Z",
+  "closed_at": "2026-04-11T03:15:20Z"
+}
